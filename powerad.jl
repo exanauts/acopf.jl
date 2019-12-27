@@ -1,16 +1,23 @@
 
 module ad
     using Calculus
-    export MyNumber
     export differentiate
+    export @objective, @constraint 
     
-    macro ad(ex)
-        @show a
+    struct objexpr
+        func
+        jacobian
+        hessian
+        vars
     end
 
-    struct MyNumber
-        v::Float64
-        d::Float64
+    struct conexpr
+        func
+        jacobian
+        hessian
+        symb
+        rhs
+        vars
     end
 
     # Unary
@@ -31,8 +38,33 @@ module ad
         ret
     end
 
-    
-    # Binary
+    function differentiate(ex::Array{Any,1}, vars::Array{Symbol,1})
+        ret = []
+        for el in ex
+            push!(ret, Calculus.differentiate(el, vars))
+        end
+        ret
+    end
+
+    macro objective(func, vars)
+        jac = ad.differentiate(func, eval(vars))
+        hes = ad.differentiate(jac, eval(vars))
+        ret = objexpr(func, jac, hes, vars)
+    end
+
+    macro constraint(func, symb, rhs, vars)
+        jac = ad.differentiate(func, eval(vars))
+        hes = ad.differentiate(jac, eval(vars))
+        ret = conexpr(func, jac, hes, symb, rhs, vars)
+    end
 end
 
 using .ad
+
+obj = @objective("cos(x)*sin(y)", [:x, :y])
+con = @constraint("cos(x)*sin(y)", "==", "0", [:x, :y])
+
+x = 1.0
+y = 3.14
+
+eval(obj.hessian[1][1])
