@@ -20,8 +20,6 @@ module ad
         vars
     end
 
-    # Unary
-    
     function differentiate(ex::String, vars::Array{Symbol,1})
         Calculus.differentiate(ex, vars)
     end
