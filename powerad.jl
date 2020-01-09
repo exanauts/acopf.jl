@@ -59,10 +59,10 @@ end
 
 using .ad
 
-obj = @objective("cos(x)*sin(y)", [:x, :y])
-con = @constraint("cos(x)*sin(y)", "==", "0", [:x, :y])
+# obj = ad.@objective("cos(x)*sin(y)", [:x, :y])
+# con = ad.@constraint("cos(x)*sin(y)", "==", "0", [:x, :y])
 
-x = 1.0
-y = 3.14
+# x = 1.0
+# y = 3.14
 
-eval(obj.hessian[1][1])
+# eval(obj.hessian[1][1])
