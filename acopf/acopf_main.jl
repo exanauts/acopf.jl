@@ -30,10 +30,14 @@ cuVm = CuArray{Float64,1,Nothing}(value.(Vm))
 # cuVm = CuArray{Float64,1,Nothing}(Vm0)
 rbalconst = CuArray{Float64,1,Nothing}(undef, size(Va,1))
 ibalconst = CuArray{Float64,1,Nothing}(undef, size(Va,1))
-@show vPg = fobjective(cuPg, opfdata)
-balance(rbalconst, ibalconst, cuPg, cuQg, cuVa, cuVm, opfdata)
+limitsto = CuArray{Float64,1,Nothing}(undef, size(Va,1))
+limitsfrom = CuArray{Float64,1,Nothing}(undef, size(Va,1))
+@show vPg = objective(cuPg, opfdata)
+constraints(rbalconst, ibalconst, limitsto, limitsfrom, cuPg, cuQg, cuVa, cuVm, opfdata)
 @show rbalconst
 @show ibalconst
+@show limitsto
+@show limitsfrom
   if status==MOI.LOCALLY_SOLVED
     acopf_outputAll(opfmodel,opfdata, Pg, Qg, Vm, Va)
   end

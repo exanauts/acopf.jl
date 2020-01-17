@@ -127,7 +127,7 @@ function acopf_model(opf_data)
   return opfmodel, Pg, Qg, Va, Vm
 end
 
-function fobjective(Pg::CuArray{Float64,1,Nothing}, opf_data::OPFData)
+function objective(Pg::CuArray{Float64,1,Nothing}, opf_data::OPFData)
   #shortcuts for compactness
   lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
@@ -156,7 +156,7 @@ function fobjective(Pg::CuArray{Float64,1,Nothing}, opf_data::OPFData)
     .+ coeff0)
 end
 
-function balance(rbalconst, ibalconst, cuPg, cuQg,  cuVa, cuVm, opf_data)
+function constraints(rbalconst, ibalconst, limitsto, limitsfrom, cuPg, cuQg,  cuVa, cuVm, opf_data)
   lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
 
@@ -189,8 +189,6 @@ function balance(rbalconst, ibalconst, cuPg, cuQg,  cuVa, cuVm, opf_data)
 
   # Real power balance
 
-  # busidxto = CuArray{Int64,1,Nothing}(undef, nbus)
-  # for b in 1:nbus busidxto[b] = sum(Vm[b] * view(cuYttR, ToLines[b])) end
   mapbus2lineto = [busIdx[lines[l].to] for l in 1:nline] 
   mapbus2linefrom = [busIdx[lines[l].from] for l in 1:nline] 
 
@@ -232,37 +230,48 @@ function balance(rbalconst, ibalconst, cuPg, cuQg,  cuVa, cuVm, opf_data)
   for b in 1:nbus 
     viewFromI[b] = sum(cuVm[b] .* view(viewVmFrom, FromLines[b]) .* (.- view(cuYtfI, FromLines[b]) .* CUDAnative.cos.(cuVa[b] .- view(viewVaFrom, FromLines[b])) .+ view(cuYtfR, FromLines[b]).* CUDAnative.sin.(cuVa[b] .- view(viewVaFrom, FromLines[b])))) 
   end
-  rbalconst .= (((viewYffR .+ viewYttR) .+ cuYshR) .* cuVm.^2)
-            .+ viewToR .+ viewFromR
-            .- ((viewPg .* baseMVA) .- cuPd) / baseMVA 
+  rbalconst .= (((viewYffR .+ viewYttR) .+ cuYshR) .* cuVm.^2) .+ viewToR .+ viewFromR .- ((viewPg .* baseMVA) .- cuPd) ./ baseMVA 
 
-  ibalconst .= (((viewYffI .+ viewYttI) .- cuYshI) .* cuVm.^2)
-            .+ viewToI .+ viewFromI
-            .- ((viewQg .* baseMVA) .- cuQd) / baseMVA 
+  ibalconst .= (((viewYffI .+ viewYttI) .- cuYshI) .* cuVm.^2) .+ viewToI .+ viewFromI .- ((viewQg .* baseMVA) .- cuQd) ./ baseMVA 
+  
+  #
+  # branch/lines flow limits
+  #
+  culinelimit = CuArray{Float64,1,Nothing}(undef, nline)
+  nlinelimit = 0
+  for l in 1:nline
+    if lines[l].rateA!=0 && lines[l].rateA<1.0e10
+      nlinelimit += 1
+      culinelimit[l] = 1.0
+    else
+      culinelimit[l] = 0.0
+    end
+  end
+  curate = CuArray{Float64,1,Nothing}(undef, nline)
+  for l in 1:nline curate[l] = lines[l].rateA end
+  cuflowmax= CuArray{Float64,1,Nothing}(undef, nline)
+  cuflowmax .= (curate ./ baseMVA).^2 
+  @show cuflowmax
+
+  Yff_abs2=CuArray{Float64,1,Nothing}(undef, nline); Yft_abs2=CuArray{Float64,1,Nothing}(undef, nline); 
+  Ytf_abs2=CuArray{Float64,1,Nothing}(undef, nline); Ytt_abs2=CuArray{Float64,1,Nothing}(undef, nline); 
+  Yrefrom=CuArray{Float64,1,Nothing}(undef, nline); Yimfrom=CuArray{Float64,1,Nothing}(undef, nline); 
+  Yreto=CuArray{Float64,1,Nothing}(undef, nline); Yimto=CuArray{Float64,1,Nothing}(undef, nline); 
+  Yff_abs2 .= cuYffR.^2 .+ cuYffI.^2; Yft_abs2 .= cuYftR.^2 .+ cuYftI.^2
+  Ytf_abs2 .= cuYtfR.^2 .+ cuYtfI.^2; Ytt_abs2 .= cuYttR.^2 .+ cuYttI.^2
+  Yrefrom .= cuYffR .* cuYftR .+ cuYffI .* cuYftI; Yimfrom .= .- cuYffR .* cuYftI .+ cuYffI .* cuYftR
+  Yreto   .= cuYtfR .* cuYttR .+ cuYtfI .* cuYttI; Yimto   .= .- cuYtfR .* cuYttI .+ cuYtfI .* cuYttR
+
+  # branch apparent power limits (from bus)
+  limitsto .= (viewVmFrom.^2 .* (Yff_abs2 .* viewVmFrom.^2 .+ Yft_abs2 .* viewVmTo.^2
+              .+ 2 .* viewVmFrom .* viewVmTo .* (Yrefrom .* CUDAnative.cos.(viewVaFrom - viewVaTo) .- Yimfrom .* CUDAnative.sin.(viewVaFrom - viewVaTo)))
+              .- cuflowmax)
+  # branch apparent power limits (to bus)
+  limitsfrom .= (viewVmTo.^2 .* (Ytf_abs2 .* viewVmFrom.^2 .+ Ytt_abs2 .* viewVmTo.^2
+              .+ 2 .* viewVmFrom .* viewVmTo .* (Yreto .* CUDAnative.cos.(viewVaFrom - viewVaTo) .- Yimto .* CUDAnative.sin.(viewVaFrom - viewVaTo)))
+              .- cuflowmax)
   return
 end
-
- 
-
-  #######################################################
-  
-  #values = zeros(2*nbus+2*ngen) 
-  ## values[1:2*nbus+2*ngen] = readdlm("/sandbox/petra/work/installs/matpower5.1/vars2.txt")
-  #values[1:2*nbus+2*ngen] = readdlm("/sandbox/petra/work/installs/matpower5.1/vars3_9241.txt")
-  #d = JuMP.NLPEvaluator(opfmodel)
-  #MathProgBase.initialize(d, [:Jac])
-
-  #g = zeros(2*nbus+2*nlinelim)
-  #MathProgBase.eval_g(d, g, values)
-  #println("f=", MathProgBase.eval_f(d,values))
- 
-  #gmat=zeros(2*nbus+2*nlinelim)
-  #gmat[1:end] = readdlm("/sandbox/petra/work/installs/matpower5.1/cons3_9241.txt")
-  #println("diff: ", norm(gmat-g))
-
-  #println(opfmodel)
-
-  #############################################################
 
 function acopf_outputAll(opfmodel, opf_data, Pg, Qg, Va, Vm)
   #shortcuts for compactness
