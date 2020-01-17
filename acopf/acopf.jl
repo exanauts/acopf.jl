@@ -3,6 +3,7 @@ using JuMP
 using Ipopt
 using Printf
 using DelimitedFiles
+using CuArrays, CUDAnative
 
 function acopf_solve(opfmodel, opf_data)
    
@@ -68,23 +69,8 @@ function acopf_model(opf_data)
   #
   # power flow balance
   #
-
-  FromVa = Vector{VariableRef}(undef, nline)
-  # ToVa = Vector{Float64}(undef, nline)
-  @show size(FromLines)
-  @show typeof(FromLines)
-  @show FromLines
   
   for b in 1:nbus
-    @show b
-    @show FromLines[b]
-    for (l,v) in enumerate(FromLines[b])
-      @show l
-      # FromVa[l] = Va[busIdx[lines[l].to]]
-    end
-    # for (i,v) in enumerate(generators)
-    #   ToVa[i] = v.coeff[v.n - 2]
-    # end
     #real part
     @NLconstraint(
       opfmodel, 
@@ -140,6 +126,123 @@ function acopf_model(opf_data)
  
   return opfmodel, Pg, Qg, Va, Vm
 end
+
+function fobjective(Pg::CuArray{Float64,1,Nothing}, opf_data::OPFData)
+  #shortcuts for compactness
+  lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
+  busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
+
+  nbus  = length(buses); nline = length(lines); ngen  = length(generators)
+
+  #branch admitances
+  YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(lines, buses, baseMVA)
+
+  # minimize active power
+  coeff0 = CuArray{Float64,1,Nothing}(undef, ngen)
+  for (i,v) in enumerate(generators)
+    coeff0[i] = v.coeff[v.n]
+  end
+  coeff1 = CuArray{Float64,1,Nothing}(undef, ngen)
+  for (i,v) in enumerate(generators)
+    coeff1[i] = v.coeff[v.n - 1]
+  end
+  coeff2 = CuArray{Float64,1,Nothing}(undef, ngen)
+  for (i,v) in enumerate(generators)
+    coeff2[i] = v.coeff[v.n - 2]
+  end
+
+  return sum(coeff2 .* (baseMVA .* Pg).^2 
+    .+ coeff1 .* (baseMVA .* Pg)
+    .+ coeff0)
+end
+
+function balance(rbalconst, ibalconst, cuPg, cuQg,  cuVa, cuVm, opf_data)
+  lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
+  busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
+
+  nbus  = length(buses); nline = length(lines); ngen  = length(generators)
+
+  # demand arrays
+  cuPd = CuArray{Float64,1,Nothing}(undef, nbus)
+  for (b,v) in enumerate(cuPd)
+    cuPd[b] = buses[b].Pd
+  end
+  cuQd = CuArray{Float64,1,Nothing}(undef, nbus)
+  for (b,v) in enumerate(cuQd)
+    cuQd[b] = buses[b].Qd
+  end
+
+  # Indices
+  cuBusGeners = Array{CuArray{Int64,1,Nothing},1}(undef, nbus)
+  for (b,v) in enumerate(BusGeners) cuBusGeners[b] = cu(BusGeners[b]) end
+  cuFromLines = Array{CuArray{Int64,1,Nothing},1}(undef, nbus)
+  for (b,v) in enumerate(FromLines) cuFromLines[b] = cu(FromLines[b]) end
+  cuToLines = Array{CuArray{Int64,1,Nothing},1}(undef, nbus)
+  for (b,v) in enumerate(ToLines) cuToLines[b] = cu(ToLines[b]) end
+
+  # Views
+  viewPg = CuArray{Float64,1,Nothing}(undef, nbus)  
+  for b in 1:nbus viewPg[b] = sum(view(cuPg, cuBusGeners[b])) end
+  viewQg = CuArray{Float64,1,Nothing}(undef, nbus)  
+  for b in 1:nbus viewQg[b] = sum(view(cuQg, cuBusGeners[b])) end
+  
+
+  # Real power balance
+
+  # busidxto = CuArray{Int64,1,Nothing}(undef, nbus)
+  # for b in 1:nbus busidxto[b] = sum(Vm[b] * view(cuYttR, ToLines[b])) end
+  mapbus2lineto = [busIdx[lines[l].to] for l in 1:nline] 
+  mapbus2linefrom = [busIdx[lines[l].from] for l in 1:nline] 
+
+  viewVmTo = view(cuVm, mapbus2lineto)
+  viewVmFrom = view(cuVm, mapbus2linefrom)
+  viewVaTo = view(cuVa, mapbus2lineto)
+  viewVaFrom = view(cuVa, mapbus2linefrom)
+
+  # branch admitances
+  YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(lines, buses, baseMVA)
+  cuYffR = cu(YffR) ; cuYffI = cu(YffI) ; cuYttR = cu(YttR) ; cuYttI = cu(YttI) ; cuYftR = cu(YftR)
+  cuYftI = cu(YftI) ; cuYtfR = cu(YtfR) ; cuYtfI = cu(YtfI) ; cuYshR = cu(YshR) ; cuYshI = cu(YshI)
+
+  # real views
+  viewYffR = CuArray{Float64,1,Nothing}(undef, nbus) ; 
+  for b in 1:nbus viewYffR[b] = sum(view(cuYffR, FromLines[b])) end
+  viewYttR = CuArray{Float64,1,Nothing}(undef, nbus) ; 
+  for b in 1:nbus viewYttR[b] = sum(view(cuYttR, ToLines[b])) end
+  # imaginary views
+  viewYffI = CuArray{Float64,1,Nothing}(undef, nbus) ; 
+  for b in 1:nbus viewYffI[b] = sum(.- view(cuYffI, FromLines[b])) end
+  viewYttI = CuArray{Float64,1,Nothing}(undef, nbus) ; 
+  for b in 1:nbus viewYttI[b] = sum(.- view(cuYttI, ToLines[b])) end
+
+  viewToR = CuArray{Float64,1,Nothing}(undef, nbus) ; 
+  viewFromR = CuArray{Float64,1,Nothing}(undef, nbus) ; 
+  viewToI = CuArray{Float64,1,Nothing}(undef, nbus) ; 
+  viewFromI = CuArray{Float64,1,Nothing}(undef, nbus) ; 
+
+  for b in 1:nbus 
+    viewToR[b] = sum(cuVm[b] .* view(viewVmTo, FromLines[b]) .* (view(cuYftR, FromLines[b]) .* CUDAnative.cos.(cuVa[b] .- view(viewVaTo, FromLines[b])) .+ view(cuYftI, FromLines[b]).* CUDAnative.sin.(cuVa[b] .- view(viewVaTo, FromLines[b])))) 
+  end
+  for b in 1:nbus 
+    viewFromR[b] = sum(cuVm[b] .* view(viewVmFrom, FromLines[b]) .* (view(cuYtfR, FromLines[b]) .* CUDAnative.cos.(cuVa[b] .- view(viewVaFrom, FromLines[b])) .+ view(cuYtfI, FromLines[b]).* CUDAnative.sin.(cuVa[b] .- view(viewVaFrom, FromLines[b])))) 
+  end
+  for b in 1:nbus 
+    viewToI[b] = sum(cuVm[b] .* view(viewVmTo, FromLines[b]) .* (.- view(cuYftI, FromLines[b]) .* CUDAnative.cos.(cuVa[b] .- view(viewVaTo, FromLines[b])) .+ view(cuYftR, FromLines[b]).* CUDAnative.sin.(cuVa[b] .- view(viewVaTo, FromLines[b])))) 
+  end
+  for b in 1:nbus 
+    viewFromI[b] = sum(cuVm[b] .* view(viewVmFrom, FromLines[b]) .* (.- view(cuYtfI, FromLines[b]) .* CUDAnative.cos.(cuVa[b] .- view(viewVaFrom, FromLines[b])) .+ view(cuYtfR, FromLines[b]).* CUDAnative.sin.(cuVa[b] .- view(viewVaFrom, FromLines[b])))) 
+  end
+  rbalconst .= (((viewYffR .+ viewYttR) .+ cuYshR) .* cuVm.^2)
+            .+ viewToR .+ viewFromR
+            .- ((viewPg .* baseMVA) .- cuPd) / baseMVA 
+
+  ibalconst .= (((viewYffI .+ viewYttI) .- cuYshI) .* cuVm.^2)
+            .+ viewToI .+ viewFromI
+            .- ((viewQg .* baseMVA) .- cuQd) / baseMVA 
+  return
+end
+
+ 
 
   #######################################################
   
