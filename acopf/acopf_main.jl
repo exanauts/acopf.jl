@@ -2,6 +2,7 @@ include("acopf.jl")
 using TimerOutputs
 using CuArrays, CUDAnative
 timeroutput = TimerOutput()
+using ForwardDiff
 
 case="acopf/case9"
 
@@ -19,19 +20,21 @@ end
 @timeit timeroutput "solve" begin
   opfmodel,status = acopf_solve(opfmodel,opfdata)
 end
-cuPg = CuArray{Float64,1,Nothing}(value.(Pg))
-cuQg = CuArray{Float64,1,Nothing}(value.(Qg))
-cuVa = CuArray{Float64,1,Nothing}(value.(Va))
-cuVm = CuArray{Float64,1,Nothing}(value.(Vm))
+cuPg = CuArray(ForwardDiff.Dual.(value.(Pg), 1))
+cuQg = CuArray(ForwardDiff.Dual.(value.(Qg), 1))
+cuVa = CuArray(ForwardDiff.Dual.(value.(Va), 1))
+cuVm = CuArray(ForwardDiff.Dual.(value.(Vm), 1))
 # Pg0,Qg0,Vm0,Va0 = acopf_initialPt_IPOPT(opfdata)
 # cuPg = CuArray{Float64,1,Nothing}(Pg0)
 # cuQg = CuArray{Float64,1,Nothing}(Qg0)
 # cuVa = CuArray{Float64,1,Nothing}(Va0)
 # cuVm = CuArray{Float64,1,Nothing}(Vm0)
-rbalconst = CuArray{Float64,1,Nothing}(undef, size(Va,1))
-ibalconst = CuArray{Float64,1,Nothing}(undef, size(Va,1))
-limitsto = CuArray{Float64,1,Nothing}(undef, size(Va,1))
-limitsfrom = CuArray{Float64,1,Nothing}(undef, size(Va,1))
+T = typeof(cuPg)
+rbalconst = T(undef, size(Va,1))
+ibalconst = T(undef, size(Va,1))
+limitsto = T(undef, size(Va,1))
+limitsfrom = T(undef, size(Va,1))
+
 @show vPg = objective(cuPg, opfdata)
 constraints(rbalconst, ibalconst, limitsto, limitsfrom, cuPg, cuQg, cuVa, cuVm, opfdata)
 @show rbalconst

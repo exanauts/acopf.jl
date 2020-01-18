@@ -127,7 +127,7 @@ function acopf_model(opf_data)
   return opfmodel, Pg, Qg, Va, Vm
 end
 
-function objective(Pg::CuArray{Float64,1,Nothing}, opf_data::OPFData)
+function objective(Pg::T, opf_data::OPFData) where T
   #shortcuts for compactness
   lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
@@ -156,7 +156,7 @@ function objective(Pg::CuArray{Float64,1,Nothing}, opf_data::OPFData)
     .+ coeff0)
 end
 
-function constraints(rbalconst, ibalconst, limitsto, limitsfrom, cuPg, cuQg,  cuVa, cuVm, opf_data)
+function constraints(rbalconst::T, ibalconst::T, limitsto, limitsfrom, cuPg::T, cuQg::T,  cuVa::T, cuVm::T, opf_data) where T
   lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
 
@@ -181,9 +181,10 @@ function constraints(rbalconst, ibalconst, limitsto, limitsfrom, cuPg, cuQg,  cu
   for (b,v) in enumerate(ToLines) cuToLines[b] = cu(ToLines[b]) end
 
   # Views
-  viewPg = CuArray{Float64,1,Nothing}(undef, nbus)  
+  viewPg = T(undef, nbus)  
+  @show typeof(viewPg)
   for b in 1:nbus viewPg[b] = sum(view(cuPg, cuBusGeners[b])) end
-  viewQg = CuArray{Float64,1,Nothing}(undef, nbus)  
+  viewQg = T(undef, nbus)  
   for b in 1:nbus viewQg[b] = sum(view(cuQg, cuBusGeners[b])) end
   
 
@@ -213,10 +214,10 @@ function constraints(rbalconst, ibalconst, limitsto, limitsfrom, cuPg, cuQg,  cu
   viewYttI = CuArray{Float64,1,Nothing}(undef, nbus) ; 
   for b in 1:nbus viewYttI[b] = sum(.- view(cuYttI, ToLines[b])) end
 
-  viewToR = CuArray{Float64,1,Nothing}(undef, nbus) ; 
-  viewFromR = CuArray{Float64,1,Nothing}(undef, nbus) ; 
-  viewToI = CuArray{Float64,1,Nothing}(undef, nbus) ; 
-  viewFromI = CuArray{Float64,1,Nothing}(undef, nbus) ; 
+  viewToR = T(undef, nbus) ; 
+  viewFromR = T(undef, nbus) ; 
+  viewToI = T(undef, nbus) ; 
+  viewFromI = T(undef, nbus) ; 
 
   for b in 1:nbus 
     viewToR[b] = sum(cuVm[b] .* view(viewVmTo, FromLines[b]) .* (view(cuYftR, FromLines[b]) .* CUDAnative.cos.(cuVa[b] .- view(viewVaTo, FromLines[b])) .+ view(cuYftI, FromLines[b]).* CUDAnative.sin.(cuVa[b] .- view(viewVaTo, FromLines[b])))) 
@@ -251,7 +252,6 @@ function constraints(rbalconst, ibalconst, limitsto, limitsfrom, cuPg, cuQg,  cu
   for l in 1:nline curate[l] = lines[l].rateA end
   cuflowmax= CuArray{Float64,1,Nothing}(undef, nline)
   cuflowmax .= (curate ./ baseMVA).^2 
-  @show cuflowmax
 
   Yff_abs2=CuArray{Float64,1,Nothing}(undef, nline); Yft_abs2=CuArray{Float64,1,Nothing}(undef, nline); 
   Ytf_abs2=CuArray{Float64,1,Nothing}(undef, nline); Ytt_abs2=CuArray{Float64,1,Nothing}(undef, nline); 
