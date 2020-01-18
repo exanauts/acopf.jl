@@ -1,9 +1,14 @@
+module acopf
+
 include("opfdata.jl")
 using JuMP
 using Ipopt
 using Printf
 using DelimitedFiles
 using CuArrays, CUDAnative
+
+export acopf_solve, opf_loaddata, acopf_model
+export create_arrays, objective, acopf_outputAll, constraints 
 
 function acopf_solve(opfmodel, opf_data)
    
@@ -127,17 +132,65 @@ function acopf_model(opf_data)
   return opfmodel, Pg, Qg, Va, Vm
 end
 
-function objective(Pg::T, opf_data::OPFData) where T
+struct CompArrays
+  cuPg
+  cuQg
+  cuVa
+  cuVm
+  baseMVA
+  nbus
+  nline
+  ngen
+  coeff0
+  coeff1
+  coeff2
+  viewToR
+  viewFromR
+  viewToI
+  viewFromI
+  viewVmTo
+  viewVmFrom
+  viewVaTo
+  viewVaFrom
+  viewYffR
+  viewYttR
+  viewYffI
+  viewYttI
+  cuYffR 
+  cuYffI
+  cuYttR
+  cuYttI
+  cuYftR
+  cuYftI
+  cuYtfR
+  cuYtfI
+  cuYshR
+  cuYshI
+  viewPg
+  viewQg
+  cuPd
+  cuQd
+  cuflowmax
+  Yff_abs2 
+  Yft_abs2
+  Ytf_abs2
+  Ytt_abs2
+  Yrefrom
+  Yimfrom
+  Yreto
+  Yimto
+end
+
+function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData) where T
   #shortcuts for compactness
   lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
 
   nbus  = length(buses); nline = length(lines); ngen  = length(generators)
 
+  # Arrays for objective
   #branch admitances
   YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(lines, buses, baseMVA)
-
-  # minimize active power
   coeff0 = CuArray{Float64,1,Nothing}(undef, ngen)
   for (i,v) in enumerate(generators)
     coeff0[i] = v.coeff[v.n]
@@ -150,17 +203,8 @@ function objective(Pg::T, opf_data::OPFData) where T
   for (i,v) in enumerate(generators)
     coeff2[i] = v.coeff[v.n - 2]
   end
-
-  return sum(coeff2 .* (baseMVA .* Pg).^2 
-    .+ coeff1 .* (baseMVA .* Pg)
-    .+ coeff0)
-end
-
-function constraints(rbalconst::T, ibalconst::T, limitsto, limitsfrom, cuPg::T, cuQg::T,  cuVa::T, cuVm::T, opf_data) where T
-  lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
-  busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
-
-  nbus  = length(buses); nline = length(lines); ngen  = length(generators)
+  
+  # Arrays for constraints
 
   # demand arrays
   cuPd = CuArray{Float64,1,Nothing}(undef, nbus)
@@ -199,7 +243,6 @@ function constraints(rbalconst::T, ibalconst::T, limitsto, limitsfrom, cuPg::T, 
   viewVaFrom = view(cuVa, mapbus2linefrom)
 
   # branch admitances
-  YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(lines, buses, baseMVA)
   cuYffR = cu(YffR) ; cuYffI = cu(YffI) ; cuYttR = cu(YttR) ; cuYttI = cu(YttI) ; cuYftR = cu(YftR)
   cuYftI = cu(YftI) ; cuYtfR = cu(YtfR) ; cuYtfI = cu(YtfI) ; cuYshR = cu(YshR) ; cuYshI = cu(YshI)
 
@@ -218,23 +261,6 @@ function constraints(rbalconst::T, ibalconst::T, limitsto, limitsfrom, cuPg::T, 
   viewFromR = T(undef, nbus) ; 
   viewToI = T(undef, nbus) ; 
   viewFromI = T(undef, nbus) ; 
-
-  for b in 1:nbus 
-    viewToR[b] = sum(cuVm[b] .* view(viewVmTo, FromLines[b]) .* (view(cuYftR, FromLines[b]) .* CUDAnative.cos.(cuVa[b] .- view(viewVaTo, FromLines[b])) .+ view(cuYftI, FromLines[b]).* CUDAnative.sin.(cuVa[b] .- view(viewVaTo, FromLines[b])))) 
-  end
-  for b in 1:nbus 
-    viewFromR[b] = sum(cuVm[b] .* view(viewVmFrom, FromLines[b]) .* (view(cuYtfR, FromLines[b]) .* CUDAnative.cos.(cuVa[b] .- view(viewVaFrom, FromLines[b])) .+ view(cuYtfI, FromLines[b]).* CUDAnative.sin.(cuVa[b] .- view(viewVaFrom, FromLines[b])))) 
-  end
-  for b in 1:nbus 
-    viewToI[b] = sum(cuVm[b] .* view(viewVmTo, FromLines[b]) .* (.- view(cuYftI, FromLines[b]) .* CUDAnative.cos.(cuVa[b] .- view(viewVaTo, FromLines[b])) .+ view(cuYftR, FromLines[b]).* CUDAnative.sin.(cuVa[b] .- view(viewVaTo, FromLines[b])))) 
-  end
-  for b in 1:nbus 
-    viewFromI[b] = sum(cuVm[b] .* view(viewVmFrom, FromLines[b]) .* (.- view(cuYtfI, FromLines[b]) .* CUDAnative.cos.(cuVa[b] .- view(viewVaFrom, FromLines[b])) .+ view(cuYtfR, FromLines[b]).* CUDAnative.sin.(cuVa[b] .- view(viewVaFrom, FromLines[b])))) 
-  end
-  rbalconst .= (((viewYffR .+ viewYttR) .+ cuYshR) .* cuVm.^2) .+ viewToR .+ viewFromR .- ((viewPg .* baseMVA) .- cuPd) ./ baseMVA 
-
-  ibalconst .= (((viewYffI .+ viewYttI) .- cuYshI) .* cuVm.^2) .+ viewToI .+ viewFromI .- ((viewQg .* baseMVA) .- cuQd) ./ baseMVA 
-  
   #
   # branch/lines flow limits
   #
@@ -261,15 +287,63 @@ function constraints(rbalconst::T, ibalconst::T, limitsto, limitsfrom, cuPg::T, 
   Ytf_abs2 .= cuYtfR.^2 .+ cuYtfI.^2; Ytt_abs2 .= cuYttR.^2 .+ cuYttI.^2
   Yrefrom .= cuYffR .* cuYftR .+ cuYffI .* cuYftI; Yimfrom .= .- cuYffR .* cuYftI .+ cuYffI .* cuYftR
   Yreto   .= cuYtfR .* cuYttR .+ cuYtfI .* cuYttI; Yimto   .= .- cuYtfR .* cuYttI .+ cuYtfI .* cuYttR
+  return CompArrays(cuPg, cuQg, cuVa, cuVm, baseMVA, nbus, nline, ngen, 
+                    coeff0, coeff1, coeff2, # balance constraints
+                    viewToR, viewFromR, viewToI, viewFromI,
+                    viewVmTo, viewVmFrom, viewVaTo, viewVaFrom,
+                    viewYffR, viewYttR, viewYffI, viewYttI,
+                    cuYffR, cuYffI, cuYttR, cuYttI, cuYftR, cuYftI, cuYtfR, cuYtfI, cuYshR, cuYshI,
+                    viewPg, viewQg,
+                    cuPd, cuQd,
+                    cuflowmax,
+                    Yff_abs2, 
+                    Yft_abs2,
+                    Ytf_abs2,
+                    Ytt_abs2,
+                    Yrefrom,
+                    Yimfrom,
+                    Yreto,
+                    Yimto)
+end
+
+function objective(opf_data::OPFData, arrays::CompArrays) where T
+  # minimize active power
+  return sum(arrays.coeff2 .* (arrays.baseMVA .* arrays.cuPg).^2 
+    .+ arrays.coeff1 .* (arrays.baseMVA .* arrays.cuPg)
+    .+ arrays.coeff0)
+end
+
+function constraints(rbalconst::T, ibalconst::T, limitsto, limitsfrom, opf_data, arrays) where T
+  lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
+  busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
+
+  nbus  = length(buses); nline = length(lines); ngen  = length(generators)
+
+
+  for b in 1:nbus 
+    arrays.viewToR[b] = sum(arrays.cuVm[b] .* view(arrays.viewVmTo, FromLines[b]) .* (view(arrays.cuYftR, FromLines[b]) .* CUDAnative.cos.(arrays.cuVa[b] .- view(arrays.viewVaTo, FromLines[b])) .+ view(arrays.cuYftI, FromLines[b]).* CUDAnative.sin.(arrays.cuVa[b] .- view(arrays.viewVaTo, FromLines[b])))) 
+  end
+  for b in 1:nbus 
+    arrays.viewFromR[b] = sum(arrays.cuVm[b] .* view(arrays.viewVmFrom, FromLines[b]) .* (view(arrays.cuYtfR, FromLines[b]) .* CUDAnative.cos.(arrays.cuVa[b] .- view(arrays.viewVaFrom, FromLines[b])) .+ view(arrays.cuYtfI, FromLines[b]).* CUDAnative.sin.(arrays.cuVa[b] .- view(arrays.viewVaFrom, FromLines[b])))) 
+  end
+  for b in 1:nbus 
+    arrays.viewToI[b] = sum(arrays.cuVm[b] .* view(arrays.viewVmTo, FromLines[b]) .* (.- view(arrays.cuYftI, FromLines[b]) .* CUDAnative.cos.(arrays.cuVa[b] .- view(arrays.viewVaTo, FromLines[b])) .+ view(arrays.cuYftR, FromLines[b]).* CUDAnative.sin.(arrays.cuVa[b] .- view(arrays.viewVaTo, FromLines[b])))) 
+  end
+  for b in 1:nbus 
+    arrays.viewFromI[b] = sum(arrays.cuVm[b] .* view(arrays.viewVmFrom, FromLines[b]) .* (.- view(arrays.cuYtfI, FromLines[b]) .* CUDAnative.cos.(arrays.cuVa[b] .- view(arrays.viewVaFrom, FromLines[b])) .+ view(arrays.cuYtfR, FromLines[b]).* CUDAnative.sin.(arrays.cuVa[b] .- view(arrays.viewVaFrom, FromLines[b])))) 
+  end
+  rbalconst .= (((arrays.viewYffR .+ arrays.viewYttR) .+ arrays.cuYshR) .* arrays.cuVm.^2) .+ arrays.viewToR .+ arrays.viewFromR .- ((arrays.viewPg .* baseMVA) .- arrays.cuPd) ./ baseMVA 
+
+  ibalconst .= (((arrays.viewYffI .+ arrays.viewYttI) .- arrays.cuYshI) .* arrays.cuVm.^2) .+ arrays.viewToI .+ arrays.viewFromI .- ((arrays.viewQg .* baseMVA) .- arrays.cuQd) ./ baseMVA 
 
   # branch apparent power limits (from bus)
-  limitsto .= (viewVmFrom.^2 .* (Yff_abs2 .* viewVmFrom.^2 .+ Yft_abs2 .* viewVmTo.^2
-              .+ 2 .* viewVmFrom .* viewVmTo .* (Yrefrom .* CUDAnative.cos.(viewVaFrom - viewVaTo) .- Yimfrom .* CUDAnative.sin.(viewVaFrom - viewVaTo)))
-              .- cuflowmax)
+  limitsto .= (arrays.viewVmFrom.^2 .* (arrays.Yff_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Yft_abs2 .* arrays.viewVmTo.^2
+              .+ 2 .* arrays.viewVmFrom .* arrays.viewVmTo .* (arrays.Yrefrom .* CUDAnative.cos.(arrays.viewVaFrom .- arrays.viewVaTo) .- arrays.Yimfrom .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
+              .- arrays.cuflowmax)
   # branch apparent power limits (to bus)
-  limitsfrom .= (viewVmTo.^2 .* (Ytf_abs2 .* viewVmFrom.^2 .+ Ytt_abs2 .* viewVmTo.^2
-              .+ 2 .* viewVmFrom .* viewVmTo .* (Yreto .* CUDAnative.cos.(viewVaFrom - viewVaTo) .- Yimto .* CUDAnative.sin.(viewVaFrom - viewVaTo)))
-              .- cuflowmax)
+  limitsfrom .= (arrays.viewVmTo.^2 .* (arrays.Ytf_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Ytt_abs2 .* arrays.viewVmTo.^2
+              .+ 2 .* arrays.viewVmFrom .* arrays.viewVmTo .* (arrays.Yreto .* CUDAnative.cos.(arrays.viewVaFrom - arrays.viewVaTo) .- arrays.Yimto .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
+              .- arrays.cuflowmax)
   return
 end
 
@@ -379,5 +453,6 @@ function acopf_initialPt_IPOPT(opfdata)
   Va = opfdata.buses[opfdata.bus_ref].Va * ones(length(opfdata.buses))
 
   return Pg,Qg,Vm,Va
+end
 end
 
