@@ -6,9 +6,13 @@ using Ipopt
 using Printf
 using DelimitedFiles
 using CuArrays, CUDAnative
+using ForwardDiff
+using TimerOutputs
 
 export acopf_solve, opf_loaddata, acopf_model
 export create_arrays, objective, acopf_outputAll, constraints 
+export acopf_initialPt_IPOPT
+export myseed!
 
 function acopf_solve(opfmodel, opf_data)
    
@@ -337,13 +341,13 @@ function constraints(rbalconst::T, ibalconst::T, limitsto, limitsfrom, opf_data,
   ibalconst .= (((arrays.viewYffI .+ arrays.viewYttI) .- arrays.cuYshI) .* arrays.cuVm.^2) .+ arrays.viewToI .+ arrays.viewFromI .- ((arrays.viewQg .* baseMVA) .- arrays.cuQd) ./ baseMVA 
 
   # branch apparent power limits (from bus)
-  limitsto .= (arrays.viewVmFrom.^2 .* (arrays.Yff_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Yft_abs2 .* arrays.viewVmTo.^2
-              .+ 2 .* arrays.viewVmFrom .* arrays.viewVmTo .* (arrays.Yrefrom .* CUDAnative.cos.(arrays.viewVaFrom .- arrays.viewVaTo) .- arrays.Yimfrom .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
-              .- arrays.cuflowmax)
+  # limitsto .= (arrays.viewVmFrom.^2 .* (arrays.Yff_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Yft_abs2 .* arrays.viewVmTo.^2
+              # .+ 2 .* arrays.viewVmFrom .* arrays.viewVmTo .* (arrays.Yrefrom .* CUDAnative.cos.(arrays.viewVaFrom .- arrays.viewVaTo) .- arrays.Yimfrom .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
+              # .- arrays.cuflowmax)
   # branch apparent power limits (to bus)
-  limitsfrom .= (arrays.viewVmTo.^2 .* (arrays.Ytf_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Ytt_abs2 .* arrays.viewVmTo.^2
-              .+ 2 .* arrays.viewVmFrom .* arrays.viewVmTo .* (arrays.Yreto .* CUDAnative.cos.(arrays.viewVaFrom - arrays.viewVaTo) .- arrays.Yimto .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
-              .- arrays.cuflowmax)
+  # limitsfrom .= (arrays.viewVmTo.^2 .* (arrays.Ytf_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Ytt_abs2 .* arrays.viewVmTo.^2
+  #             .+ 2 .* arrays.viewVmFrom .* arrays.viewVmTo .* (arrays.Yreto .* CUDAnative.cos.(arrays.viewVaFrom - arrays.viewVaTo) .- arrays.Yimto .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
+  #             .- arrays.cuflowmax)
   return
 end
 
@@ -453,6 +457,95 @@ function acopf_initialPt_IPOPT(opfdata)
   Va = opfdata.buses[opfdata.bus_ref].Va * ones(length(opfdata.buses))
 
   return Pg,Qg,Vm,Va
+end
+function myseed!(duals::AbstractArray{ForwardDiff.Dual{T,V,N}}, x,
+               seeds::AbstractArray{ForwardDiff.Partials{N,V}}) where {T,V,N}
+    for i in 1:size(duals,1)
+        duals[i] = ForwardDiff.Dual{T,V,N}(x[i], seeds[i])
+    end
+    # duals .= ForwardDiff.Dual{T,V,N}.(x, seeds)
+    return duals
+end
+function benchmark(opfdata, Pg, Qg, Vm, Va, npartials, mpartials, loops, timeroutput)
+  
+  t1s{N} =  ForwardDiff.Dual{Nothing,Float64, N} where N
+  t2s{M,N} =  ForwardDiff.Dual{Nothing,t1s{N}, M} where {N, M}
+
+  T = CuArray{Float64,1,Nothing}
+
+  t1sseedvec = ones(Float64, npartials)
+  t1sseeds = Array{ForwardDiff.Partials{npartials,Float64},1}(undef, size(Pg,1))
+  for i in 1:size(Pg,1)
+    t1sseedvec[i] = 1.0
+    t1sseeds[i] = ForwardDiff.Partials{npartials, Float64}(NTuple{npartials, Float64}(t1sseedvec))
+    t1sseedvec[i] = 0.0
+  end
+
+  t1scuPg = acopf.myseed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Pg,1)), value.(Pg), t1sseeds)
+  t1scuQg = ForwardDiff.seed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Qg,1)), value.(Qg))
+  t1scuVa = ForwardDiff.seed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Va,1)), value.(Va))
+  t1scuVm = ForwardDiff.seed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Vm,1)), value.(Vm))
+  # @show t1scuPg
+
+
+  t2sseedvec = Array{t1s{npartials},1}(undef, mpartials)
+  t2sseeds = Array{ForwardDiff.Partials{mpartials,t1s{npartials}},1}(undef, size(Pg,1))
+  t2sseedvec .= 1.0
+  for i in 1:size(Pg,1)
+    t2sseedvec[i] = 1.0
+    t2sseeds[i] = ForwardDiff.Partials{mpartials, t1s{npartials}}(NTuple{mpartials, t1s{npartials}}(t2sseedvec))
+    t2sseedvec[i] = 0.0
+  end
+  # @show t2sseeds
+  # @show t2sseedvec
+  # t2sseedtup = NTuple{size(Pg,1), ForwardDiff.Partials{size(Pg,1), Float64}}(t1sseeds)
+  t2scuPg = acopf.myseed!(CuArray{t2s{mpartials,npartials}, 1, Nothing}(undef, size(Pg,1)), t1scuPg, t2sseeds)
+  t2scuQg = ForwardDiff.seed!(CuArray{t2s{mpartials, npartials}, 1, Nothing}(undef, size(Qg,1)), t1scuQg)
+  t2scuVa = ForwardDiff.seed!(CuArray{t2s{mpartials, npartials}, 1, Nothing}(undef, size(Va,1)), t1scuVa)
+  t2scuVm = ForwardDiff.seed!(CuArray{t2s{mpartials, npartials}, 1, Nothing}(undef, size(Vm,1)), t1scuVm)
+  # @show t2scuPg
+
+  # Pg0,Qg0,Vm0,Va0 = acopf.acopf_initialPt_IPOPT(opfdata)
+  # cuPg = ForwardDiff.seed!(CuArray{ForwardDiff.Dual{Nothing,Float64,size(Pg,1)}, 1, Nothing}(undef, size(Pg,1)), Pg0, seedtup)
+  # cuQg = ForwardDiff.seed!(CuArray{ForwardDiff.Dual{Nothing,Float64,size(Pg,1)}, 1, Nothing}(undef, size(Qg,1)), Qg0)
+  # cuVa = ForwardDiff.seed!(CuArray{ForwardDiff.Dual{Nothing,Float64,size(Pg,1)}, 1, Nothing}(undef, size(Va,1)), Va0)
+  # cuVm = ForwardDiff.seed!(CuArray{ForwardDiff.Dual{Nothing,Float64,size(Pg,1)}, 1, Nothing}(undef, size(Vm,1)), Vm0)
+  T = typeof(t1scuQg)
+  t1srbalconst = T(undef, size(Va,1))
+  t1sibalconst = T(undef, size(Va,1))
+  t1slimitsto = T(undef, size(Va,1))
+  t1slimitsfrom = T(undef, size(Va,1))
+  t1sarrays = acopf.create_arrays(t1scuPg, t1scuQg, t1scuVa, t1scuVm, opfdata)
+  t1sPg = acopf.objective(opfdata, t1sarrays)
+  @timeit timeroutput "t1s objective" begin
+    for i in 1:loops
+      t1sPg = acopf.objective(opfdata, t1sarrays)
+    end
+  end
+  acopf.constraints(t1srbalconst, t1sibalconst, t1slimitsto, t1slimitsfrom, opfdata, t1sarrays)
+  @timeit timeroutput "t1s constraints" begin
+    for i in 1:loops
+      acopf.constraints(t1srbalconst, t1sibalconst, t1slimitsto, t1slimitsfrom, opfdata, t1sarrays)
+    end
+  end
+  T = typeof(t2scuQg)
+  t2srbalconst = T(undef, size(Va,1))
+  t2sibalconst = T(undef, size(Va,1))
+  t2slimitsto = T(undef, size(Va,1))
+  t2slimitsfrom = T(undef, size(Va,1))
+  t2sarrays = acopf.create_arrays(t2scuPg, t2scuQg, t2scuVa, t2scuVm, opfdata)
+  t2sPg = acopf.objective(opfdata, t2sarrays)
+  @timeit timeroutput "t2s objective" begin
+    for i in 1:loops
+      t2sPg = acopf.objective(opfdata, t2sarrays)
+    end
+  end
+  acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t1sarrays)
+  @timeit timeroutput "t2s constraints" begin
+    for i in 1:loops
+      acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t1sarrays)
+    end
+  end
 end
 end
 

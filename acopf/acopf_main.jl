@@ -7,7 +7,7 @@ timeroutput = TimerOutput()
 using ForwardDiff
 import .acopf
 
-case="acopf/case9"
+case="acopf/data/case9"
 
 function main()
 
@@ -23,33 +23,17 @@ end
 @timeit timeroutput "solve" begin
   opfmodel,status = acopf.acopf_solve(opfmodel,opfdata)
 end
-cuPg = CuArray(ForwardDiff.Dual.(value.(Pg), 1))
-cuQg = CuArray(ForwardDiff.Dual.(value.(Qg), 1))
-cuVa = CuArray(ForwardDiff.Dual.(value.(Va), 1))
-cuVm = CuArray(ForwardDiff.Dual.(value.(Vm), 1))
-# Pg0,Qg0,Vm0,Va0 = acopf_initialPt_IPOPT(opfdata)
-# cuPg = CuArray{Float64,1,Nothing}(Pg0)
-# cuQg = CuArray{Float64,1,Nothing}(Qg0)
-# cuVa = CuArray{Float64,1,Nothing}(Va0)
-# cuVm = CuArray{Float64,1,Nothing}(Vm0)
-T = typeof(cuPg)
-rbalconst = T(undef, size(Va,1))
-ibalconst = T(undef, size(Va,1))
-limitsto = T(undef, size(Va,1))
-limitsfrom = T(undef, size(Va,1))
-arrays = acopf.create_arrays(cuPg, cuQg, cuVa, cuVm, opfdata)
-vPg = acopf.objective(opfdata, arrays)
-acopf.constraints(rbalconst, ibalconst, limitsto, limitsfrom, opfdata, arrays)
-@show vPg.value
-@show ForwardDiff.value(vPg)
-@show ForwardDiff.value.(rbalconst)
-@show ForwardDiff.value.(ibalconst)
-@show ForwardDiff.value.(limitsto)
-@show ForwardDiff.value.(limitsfrom)
-  if status==MOI.LOCALLY_SOLVED
-    acopf.acopf_outputAll(opfmodel,opfdata, Pg, Qg, Vm, Va)
-  end
+
+if status==MOI.LOCALLY_SOLVED
+  acopf.acopf_outputAll(opfmodel,opfdata, Pg, Qg, Vm, Va)
+end
+acopf.benchmark(opfdata, Pg, Qg, Vm, Va, 3, 3, 100, timeroutput)
+# println("Objective: ", ForwardDiff.value.(t1sPg))
+# println("Objective gradient: ", ForwardDiff.partials.(t1sPg))
+# println("Objective Hessian: ", ForwardDiff.partials.(t2sPg))
+# println("Constraint Hessian: ", ForwardDiff.partials.(t2srbalconst))
 show(timeroutput)
+return opfmodel
 end
 
-main()
+opfmodel = main()
