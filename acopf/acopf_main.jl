@@ -7,7 +7,9 @@ timeroutput = TimerOutput()
 using ForwardDiff
 import .acopf
 
-case="acopf/data/case30"
+case="acopf/data/case9241pegase"
+# case="acopf/data/case9"
+# case="acopf/data/case118"
 
 function main()
 
@@ -28,9 +30,9 @@ if status==MOI.LOCALLY_SOLVED
   acopf.acopf_outputAll(opfmodel,opfdata, Pg, Qg, Vm, Va)
 end
 @show size(Pg,1)
-acopf.benchmark(opfdata, Pg, Qg, Vm, Va, size(Pg,1), size(Pg,1), 100, timeroutput)
+t1sPg = acopf.benchmark(opfdata, Pg, Qg, Vm, Va, 1, 1, 10, timeroutput)
 # println("Objective: ", ForwardDiff.value.(t1sPg))
-# println("Objective gradient: ", ForwardDiff.partials.(t1sPg))
+println("Objective gradient: ", ForwardDiff.partials.(t1sPg))
 # println("Objective Hessian: ", ForwardDiff.partials.(t2sPg))
 # println("Constraint Hessian: ", ForwardDiff.partials.(t2srbalconst))
 show(timeroutput)
