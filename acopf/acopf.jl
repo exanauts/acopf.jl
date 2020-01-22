@@ -341,13 +341,13 @@ function constraints(rbalconst::T, ibalconst::T, limitsto, limitsfrom, opf_data,
   ibalconst .= (((arrays.viewYffI .+ arrays.viewYttI) .- arrays.cuYshI) .* arrays.cuVm.^2) .+ arrays.viewToI .+ arrays.viewFromI .- ((arrays.viewQg .* baseMVA) .- arrays.cuQd) ./ baseMVA 
 
   # branch apparent power limits (from bus)
-  # limitsto .= (arrays.viewVmFrom.^2 .* (arrays.Yff_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Yft_abs2 .* arrays.viewVmTo.^2
-              # .+ 2 .* arrays.viewVmFrom .* arrays.viewVmTo .* (arrays.Yrefrom .* CUDAnative.cos.(arrays.viewVaFrom .- arrays.viewVaTo) .- arrays.Yimfrom .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
-              # .- arrays.cuflowmax)
+  limitsto .= (arrays.viewVmFrom.^2 .* (arrays.Yff_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Yft_abs2 .* arrays.viewVmTo.^2
+           .+ 2 .* arrays.viewVmFrom .* arrays.viewVmTo .* (arrays.Yrefrom .* CUDAnative.cos.(arrays.viewVaFrom .- arrays.viewVaTo) .- arrays.Yimfrom .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
+           .- arrays.cuflowmax)
   # branch apparent power limits (to bus)
-  # limitsfrom .= (arrays.viewVmTo.^2 .* (arrays.Ytf_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Ytt_abs2 .* arrays.viewVmTo.^2
-  #             .+ 2 .* arrays.viewVmFrom .* arrays.viewVmTo .* (arrays.Yreto .* CUDAnative.cos.(arrays.viewVaFrom - arrays.viewVaTo) .- arrays.Yimto .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
-  #             .- arrays.cuflowmax)
+  limitsfrom .= (arrays.viewVmTo.^2 .* (arrays.Ytf_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Ytt_abs2 .* arrays.viewVmTo.^2
+             .+ 2 .* arrays.viewVmFrom .* arrays.viewVmTo .* (arrays.Yreto .* CUDAnative.cos.(arrays.viewVaFrom - arrays.viewVaTo) .- arrays.Yimto .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
+             .- arrays.cuflowmax)
   return
 end
 
@@ -463,7 +463,7 @@ function myseed!(duals::AbstractArray{ForwardDiff.Dual{T,V,N}}, x,
     for i in 1:size(duals,1)
         duals[i] = ForwardDiff.Dual{T,V,N}(x[i], seeds[i])
     end
-    # duals .= ForwardDiff.Dual{T,V,N}.(x, seeds)
+    # duals = ForwardDiff.Dual{T,V,N}(x, seeds)
     return duals
 end
 function benchmark(opfdata, Pg, Qg, Vm, Va, npartials, mpartials, loops, timeroutput)
@@ -511,10 +511,10 @@ function benchmark(opfdata, Pg, Qg, Vm, Va, npartials, mpartials, loops, timerou
   # cuVa = ForwardDiff.seed!(CuArray{ForwardDiff.Dual{Nothing,Float64,size(Pg,1)}, 1, Nothing}(undef, size(Va,1)), Va0)
   # cuVm = ForwardDiff.seed!(CuArray{ForwardDiff.Dual{Nothing,Float64,size(Pg,1)}, 1, Nothing}(undef, size(Vm,1)), Vm0)
   T = typeof(t1scuQg)
-  t1srbalconst = T(undef, size(Va,1))
-  t1sibalconst = T(undef, size(Va,1))
-  t1slimitsto = T(undef, size(Va,1))
-  t1slimitsfrom = T(undef, size(Va,1))
+  t1srbalconst = T(undef, length(opfdata.buses))
+  t1sibalconst = T(undef, length(opfdata.buses))
+  t1slimitsto = T(undef, length(opfdata.lines))
+  t1slimitsfrom = T(undef, length(opfdata.lines))
   t1sarrays = acopf.create_arrays(t1scuPg, t1scuQg, t1scuVa, t1scuVm, opfdata)
   t1sPg = acopf.objective(opfdata, t1sarrays)
   @timeit timeroutput "t1s objective" begin
@@ -529,10 +529,10 @@ function benchmark(opfdata, Pg, Qg, Vm, Va, npartials, mpartials, loops, timerou
     end
   end
   T = typeof(t2scuQg)
-  t2srbalconst = T(undef, size(Va,1))
-  t2sibalconst = T(undef, size(Va,1))
-  t2slimitsto = T(undef, size(Va,1))
-  t2slimitsfrom = T(undef, size(Va,1))
+  t2srbalconst = T(undef, length(opfdata.buses))
+  t2sibalconst = T(undef, length(opfdata.buses))
+  t2slimitsto = T(undef, length(opfdata.lines))
+  t2slimitsfrom = T(undef, length(opfdata.lines))
   t2sarrays = acopf.create_arrays(t2scuPg, t2scuQg, t2scuVa, t2scuVm, opfdata)
   t2sPg = acopf.objective(opfdata, t2sarrays)
   @timeit timeroutput "t2s objective" begin
