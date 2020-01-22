@@ -245,9 +245,8 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData) wh
 
   # Real power balance
 
-  mapbus2lineto = [busIdx[lines[l].to] for l in 1:nline] 
-  mapbus2linefrom = [busIdx[lines[l].from] for l in 1:nline] 
-
+  mapbus2lineto = CuArray{Int64,1,Nothing}([busIdx[lines[l].to] for l in 1:nline]) 
+  mapbus2linefrom = CuArray{Int64,1,Nothing}([busIdx[lines[l].from] for l in 1:nline])
   viewVmTo = view(cuVm, mapbus2lineto)
   viewVmFrom = view(cuVm, mapbus2linefrom)
   viewVaTo = view(cuVa, mapbus2lineto)
@@ -259,14 +258,14 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData) wh
 
   # real views
   viewYffR = CuArray{Float64,1,Nothing}(undef, nbus) ; 
-  for b in 1:nbus viewYffR[b] = sum(view(cuYffR, FromLines[b])) end
+  for b in 1:nbus viewYffR[b] = sum(view(cuYffR, cuFromLines[b])) end
   viewYttR = CuArray{Float64,1,Nothing}(undef, nbus) ; 
-  for b in 1:nbus viewYttR[b] = sum(view(cuYttR, ToLines[b])) end
+  for b in 1:nbus viewYttR[b] = sum(view(cuYttR, cuToLines[b])) end
   # imaginary views
   viewYffI = CuArray{Float64,1,Nothing}(undef, nbus) ; 
-  for b in 1:nbus viewYffI[b] = sum(.- view(cuYffI, FromLines[b])) end
+  for b in 1:nbus viewYffI[b] = sum(.- view(cuYffI, cuFromLines[b])) end
   viewYttI = CuArray{Float64,1,Nothing}(undef, nbus) ; 
-  for b in 1:nbus viewYttI[b] = sum(.- view(cuYttI, ToLines[b])) end
+  for b in 1:nbus viewYttI[b] = sum(.- view(cuYttI, cuToLines[b])) end
 
   viewToR = T(undef, nbus) ; 
   viewFromR = T(undef, nbus) ; 
@@ -303,19 +302,24 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData) wh
   viewcuYftRFromLines = Array{SubArray,1}(undef, nbus)
   viewVaToFromLines = Array{SubArray,1}(undef, nbus)
   viewcuYftIFromLines = Array{SubArray,1}(undef, nbus)
-  for b in 1:nbus viewVmToFromLines[b]   = view(viewVmTo, FromLines[b]) end
-  for b in 1:nbus viewcuYftRFromLines[b] = view(cuYftR, FromLines[b]) end 
-  for b in 1:nbus viewVaToFromLines[b]   = view(viewVaTo, FromLines[b]) end
-  for b in 1:nbus viewcuYftIFromLines[b] = view(cuYftI, FromLines[b]) end
+  
+  # for b in 1:nbus viewVmToFromLines[b]   = view(cuVm, mapbus2lineto[cuFromLines[b]]) end
+  for b in 1:nbus viewVmToFromLines[b]   = view(viewVmTo, cuFromLines[b]) end
+  for b in 1:nbus viewcuYftRFromLines[b] = view(cuYftR, cuFromLines[b]) end 
+  for b in 1:nbus viewVaToFromLines[b]   = view(viewVaTo, cuFromLines[b]) end
+  for b in 1:nbus viewcuYftIFromLines[b] = view(cuYftI, cuFromLines[b]) end
+
+  # for b in 1:nbus @show cuVm[mapbus2lineto[cuFromLines[b]]] end
+  # for b in 1:nbus @show viewVmToFromLines[b] end
 
   viewVmFromToLines = Array{SubArray,1}(undef, nbus)
   viewcuYtfRToLines = Array{SubArray,1}(undef, nbus)
   viewVaFromToLines = Array{SubArray,1}(undef, nbus)
   viewcuYtfIToLines = Array{SubArray,1}(undef, nbus)
-  for b in 1:nbus viewVmFromToLines[b]   = view(viewVmFrom, ToLines[b]) end
-  for b in 1:nbus viewcuYtfRToLines[b] = view(cuYtfR, ToLines[b]) end 
-  for b in 1:nbus viewVaFromToLines[b]   = view(viewVaFrom, ToLines[b]) end
-  for b in 1:nbus viewcuYtfIToLines[b] = view(cuYtfI, ToLines[b]) end
+  for b in 1:nbus viewVmFromToLines[b] = view(viewVmFrom, cuToLines[b]) end
+  for b in 1:nbus viewcuYtfRToLines[b] = view(cuYtfR, cuToLines[b]) end 
+  for b in 1:nbus viewVaFromToLines[b] = view(viewVaFrom, cuToLines[b]) end
+  for b in 1:nbus viewcuYtfIToLines[b] = view(cuYtfI, cuToLines[b]) end
 
   # viewVmToFromLines = Array{SubArray,1}(undef, nbus)
   # viewVaFromFromLines = Array{SubArray,1}(undef, nbus)
@@ -374,6 +378,7 @@ function constraints(rbalconst::T, ibalconst::T, limitsto, limitsfrom, opf_data,
 
   @timeit timeroutput "constraints build arrays" begin
   # a = similar(arrays.viewToR)
+  # a .= sum.(arrays.cuVm .* arrays.viewVmToFromLines)
   for b in 1:nbus 
     arrays.viewToR[b] = sum(arrays.cuVm[b] .* arrays.viewVmToFromLines[b] .* (arrays.viewcuYftRFromLines[b] .* CUDAnative.cos.(arrays.cuVa[b] .- arrays.viewVaToFromLines[b]) .+ arrays.viewcuYftIFromLines[b] .* CUDAnative.sin.(arrays.cuVa[b] .- arrays.viewVaToFromLines[b]))) 
   end
