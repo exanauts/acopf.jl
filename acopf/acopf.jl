@@ -253,8 +253,8 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData) wh
   viewVaFrom = view(cuVa, mapbus2linefrom)
 
   # branch admitances
-  cuYffR = cu(YffR) ; cuYffI = cu(YffI) ; cuYttR = cu(YttR) ; cuYttI = cu(YttI) ; cuYftR = cu(YftR)
-  cuYftI = cu(YftI) ; cuYtfR = cu(YtfR) ; cuYtfI = cu(YtfI) ; cuYshR = cu(YshR) ; cuYshI = cu(YshI)
+  cuYffR = CuArray{Float64,1,Nothing}(YffR) ; cuYffI = CuArray{Float64,1,Nothing}(YffI) ; cuYttR = CuArray{Float64,1,Nothing}(YttR) ; cuYttI = CuArray{Float64,1,Nothing}(YttI) ; cuYftR = CuArray{Float64,1,Nothing}(YftR)
+  cuYftI = CuArray{Float64,1,Nothing}(YftI) ; cuYtfR = CuArray{Float64,1,Nothing}(YtfR) ; cuYtfI = CuArray{Float64,1,Nothing}(YtfI) ; cuYshR = CuArray{Float64,1,Nothing}(YshR) ; cuYshI = CuArray{Float64,1,Nothing}(YshI)
 
   # real views
   viewYffR = CuArray{Float64,1,Nothing}(undef, nbus) ; 
@@ -297,29 +297,48 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData) wh
   Ytf_abs2 .= cuYtfR.^2 .+ cuYtfI.^2; Ytt_abs2 .= cuYttR.^2 .+ cuYttI.^2
   Yrefrom .= cuYffR .* cuYftR .+ cuYffI .* cuYftI; Yimfrom .= .- cuYffR .* cuYftI .+ cuYffI .* cuYftR
   Yreto   .= cuYtfR .* cuYttR .+ cuYtfI .* cuYttI; Yimto   .= .- cuYtfR .* cuYttI .+ cuYtfI .* cuYttR
-
-  viewVmToFromLines = Array{SubArray,1}(undef, nbus)
-  viewcuYftRFromLines = Array{SubArray,1}(undef, nbus)
-  viewVaToFromLines = Array{SubArray,1}(undef, nbus)
-  viewcuYftIFromLines = Array{SubArray,1}(undef, nbus)
+  @show mconnect = maximum(size.(cuFromLines,1))
+  # viewVmToFromLines = CuArray{ForwardDiff.Dual{Nothing,Float64,3}, 2, Nothing}(undef, nbus, mconnect)
+  viewVmToFromLines   = Array{CuArray,1}(undef, nbus)
+  viewcuYftRFromLines = Array{CuArray,1}(undef, nbus)
+  viewVaToFromLines   = Array{CuArray,1}(undef, nbus)
+  viewcuYftIFromLines = Array{CuArray,1}(undef, nbus)
+  # viewVmToFromLines = Array{SubArray,1}(undef, nbus)
+  # viewcuYftRFromLines = Array{SubArray,1}(undef, nbus)
+  # viewVaToFromLines = Array{SubArray,1}(undef, nbus)
+  # viewcuYftIFromLines = Array{SubArray,1}(undef, nbus)
   
-  # for b in 1:nbus viewVmToFromLines[b]   = view(cuVm, mapbus2lineto[cuFromLines[b]]) end
-  for b in 1:nbus viewVmToFromLines[b]   = view(viewVmTo, cuFromLines[b]) end
-  for b in 1:nbus viewcuYftRFromLines[b] = view(cuYftR, cuFromLines[b]) end 
-  for b in 1:nbus viewVaToFromLines[b]   = view(viewVaTo, cuFromLines[b]) end
-  for b in 1:nbus viewcuYftIFromLines[b] = view(cuYftI, cuFromLines[b]) end
+  function filltopo(array,range)
+    for i in range
+      @show i 
+    end
+  end
+  # for b in 1:nbus @show size(cuVm[mapbus2lineto[cuFromLines[b]]]) end
+  # for b in 1:nbus @show size(viewVmToFromLines[b,:]) end
+  # for b in 1:nbus @show viewVmToFromLines[b,:] end
+  # for b in 1:nbus @show cuVm[mapbus2lineto[cuFromLines[b]]] end
+  # for b in 1:nbus filltopo(viewVmToFromLines[b,:], mapbus2lineto[cuFromLines[b]]) end
+  for b in 1:nbus viewVmToFromLines[b]   = cuVm[mapbus2lineto[cuFromLines[b]]] end
+  for b in 1:nbus viewcuYftRFromLines[b] = cuYftR[cuFromLines[b]] end 
+  for b in 1:nbus viewVaToFromLines[b]   = cuVa[mapbus2lineto[cuFromLines[b]]] end
+  for b in 1:nbus viewcuYftIFromLines[b] = cuYftI[cuFromLines[b]] end
+
+  # for b in 1:nbus viewVmToFromLines[b]   = view(viewVmTo, cuFromLines[b]) end
+  # for b in 1:nbus viewcuYftRFromLines[b] = view(cuYftR, cuFromLines[b]) end 
+  # for b in 1:nbus viewVaToFromLines[b]   = view(viewVaTo, cuFromLines[b]) end
+  # for b in 1:nbus viewcuYftIFromLines[b] = view(cuYftI, cuFromLines[b]) end
 
   # for b in 1:nbus @show cuVm[mapbus2lineto[cuFromLines[b]]] end
   # for b in 1:nbus @show viewVmToFromLines[b] end
 
-  viewVmFromToLines = Array{SubArray,1}(undef, nbus)
-  viewcuYtfRToLines = Array{SubArray,1}(undef, nbus)
-  viewVaFromToLines = Array{SubArray,1}(undef, nbus)
-  viewcuYtfIToLines = Array{SubArray,1}(undef, nbus)
-  for b in 1:nbus viewVmFromToLines[b] = view(viewVmFrom, cuToLines[b]) end
-  for b in 1:nbus viewcuYtfRToLines[b] = view(cuYtfR, cuToLines[b]) end 
-  for b in 1:nbus viewVaFromToLines[b] = view(viewVaFrom, cuToLines[b]) end
-  for b in 1:nbus viewcuYtfIToLines[b] = view(cuYtfI, cuToLines[b]) end
+  viewVmFromToLines = Array{CuArray,1}(undef, nbus)
+  viewcuYtfRToLines = Array{CuArray,1}(undef, nbus)
+  viewVaFromToLines = Array{CuArray,1}(undef, nbus)
+  viewcuYtfIToLines = Array{CuArray,1}(undef, nbus)
+  for b in 1:nbus viewVmFromToLines[b] = cuVm[mapbus2linefrom[cuToLines[b]]] end
+  for b in 1:nbus viewcuYtfRToLines[b] = cuYtfR[cuToLines[b]] end 
+  for b in 1:nbus viewVaFromToLines[b] = cuVa[mapbus2linefrom[cuToLines[b]]] end
+  for b in 1:nbus viewcuYtfIToLines[b] = cuYtfI[cuToLines[b]] end
 
   # viewVmToFromLines = Array{SubArray,1}(undef, nbus)
   # viewVaFromFromLines = Array{SubArray,1}(undef, nbus)
@@ -377,12 +396,30 @@ function constraints(rbalconst::T, ibalconst::T, limitsto, limitsfrom, opf_data,
 
 
   @timeit timeroutput "constraints build arrays" begin
-  # a = similar(arrays.viewToR)
-  # a .= sum.(arrays.cuVm .* arrays.viewVmToFromLines)
+  # *₊(a,b) = a .* b 
+  # -₊(a,b) = a .* b 
+  # function cos₊(a)
+  #   return CUDAnative.cos.(a) 
+  # end
+  # arraycuVm = Array{CuArray,1}(undef,nbus)
+  # for b in 1:nbus arraycuVm[b] = arrays.cuVm[b] end
+  # arraycuVa = Array{CuArray,1}(undef,nbus)
+  # for b in 1:nbus arraycuVa[b] = arrays.cuVa[b] end
+  # @show typeof(arrays.viewVmToFromLines)
+  # @show typeof(arrays.viewVaToFromLines)
+  # @show typeof(arrays.viewVmToFromLines .*₊ arrays.viewcuYftRFromLines)
+  # @show typeof(arraycuVm .*₊ arrays.viewcuYftRFromLines)
+  # @show size(arrays.viewVmToFromLines .*₊ arrays.viewcuYftRFromLines)
+  # @show typeof(.-₊(arraycuVa, arrays.viewVaToFromLines))
+  # @show typeof(arrays.cuVa[1] .- arrays.viewVaToFromLines[1])
+  
+  # # @show arrays.cuVa .(-₊) arrays.viewVaToFromLines
+  # cos₊(arraycuVa .-₊ arrays.viewVaToFromLines)
+   
   for b in 1:nbus 
     arrays.viewToR[b] = sum(arrays.cuVm[b] .* arrays.viewVmToFromLines[b] .* (arrays.viewcuYftRFromLines[b] .* CUDAnative.cos.(arrays.cuVa[b] .- arrays.viewVaToFromLines[b]) .+ arrays.viewcuYftIFromLines[b] .* CUDAnative.sin.(arrays.cuVa[b] .- arrays.viewVaToFromLines[b]))) 
-  end
-  for b in 1:nbus 
+  # end
+  # for b in 1:nbus 
     arrays.viewFromR[b] = sum(arrays.cuVm[b] .* arrays.viewVmFromToLines[b] .* (arrays.viewcuYtfRToLines[b] .* CUDAnative.cos.(arrays.cuVa[b] .- arrays.viewVaFromToLines[b]) .+ arrays.viewcuYtfIToLines[b] .* CUDAnative.sin.(arrays.cuVa[b] .- arrays.viewVaFromToLines[b]))) 
   end
   for b in 1:nbus 
@@ -618,36 +655,36 @@ function benchmark(opfdata, Pg, Qg, Vm, Va, npartials, mpartials, loops, timerou
       acopf.constraints(t1srbalconst, t1sibalconst, t1slimitsto, t1slimitsfrom, opfdata, t1sarrays, timeroutput)
     end
   end
-  # T = typeof(t2scuQg)
-  # t2srbalconst = T(undef, length(opfdata.buses))
-  # t2sibalconst = T(undef, length(opfdata.buses))
-  # t2slimitsto = T(undef, length(opfdata.lines))
-  # t2slimitsfrom = T(undef, length(opfdata.lines))
-  # println("Create t2s arrays")
-  # @timeit timeroutput "Create t2s arrays" begin
-  # t2sarrays = acopf.create_arrays(t2scuPg, t2scuQg, t2scuVa, t2scuVm, opfdata)
-  # end
-  # println("Initial t2s objective")
-  # @timeit timeroutput "Initial t2s objective" begin
-  # t2sPg = acopf.objective(opfdata, t2sarrays)
-  # end
-  # println("t2s objective")
-  # @timeit timeroutput "t2s objective" begin
-  #   for i in 1:loops
-  #     t2sPg = acopf.objective(opfdata, t2sarrays)
-  #   end
-  # end
-  # println("Initial t2s constraints")
-  # @timeit timeroutput "Initial t2s constraints" begin
-  # acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t1sarrays, timeroutput)
-  # end
-  # println("t2s constraints")
-  # @timeit timeroutput "t2s constraints" begin
-  #   for i in 1:loops
-  #     acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t1sarrays, timeroutput)
-  #   end
-  # end
-  return t1sPg#, t2sPg
+  T = typeof(t2scuQg)
+  t2srbalconst = T(undef, length(opfdata.buses))
+  t2sibalconst = T(undef, length(opfdata.buses))
+  t2slimitsto = T(undef, length(opfdata.lines))
+  t2slimitsfrom = T(undef, length(opfdata.lines))
+  println("Create t2s arrays")
+  @timeit timeroutput "Create t2s arrays" begin
+  t2sarrays = acopf.create_arrays(t2scuPg, t2scuQg, t2scuVa, t2scuVm, opfdata)
+  end
+  println("Initial t2s objective")
+  @timeit timeroutput "Initial t2s objective" begin
+  t2sPg = acopf.objective(opfdata, t2sarrays)
+  end
+  println("t2s objective")
+  @timeit timeroutput "t2s objective" begin
+    for i in 1:loops
+      t2sPg = acopf.objective(opfdata, t2sarrays)
+    end
+  end
+  println("Initial t2s constraints")
+  @timeit timeroutput "Initial t2s constraints" begin
+  acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t1sarrays, timeroutput)
+  end
+  println("t2s constraints")
+  @timeit timeroutput "t2s constraints" begin
+    for i in 1:loops
+      acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t1sarrays, timeroutput)
+    end
+  end
+  return t1sPg, t2sPg
 end
 end
 
