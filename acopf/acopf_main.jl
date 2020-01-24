@@ -9,8 +9,8 @@ import .acopf
 
 # case="acopf/data/case9241pegase"
 # case="acopf/data/case1354pegase"
-# case="acopf/data/case9"
-case="acopf/data/case30"
+case="acopf/data/case9"
+# case="acopf/data/case30"
 
 function main()
 
@@ -31,13 +31,15 @@ if status==MOI.LOCALLY_SOLVED
   acopf.acopf_outputAll(opfmodel,opfdata, Pg, Qg, Vm, Va)
 end
 @show size(Pg,1)
-t1sPg, t1sPg = acopf.benchmark(opfdata, Pg, Qg, Vm, Va, 3, 3, 1, timeroutput)
+t1sPg, t2sPg = acopf.benchmark(opfdata, Pg, Qg, Vm, Va, 3, 3, 0, timeroutput)
+# t1sPg, t1sPg = acopf.benchmark(opfdata, Pg, Qg, Vm, Va, size(Pg,1), size(Pg,1), 100, timeroutput)
+# t1sPg, t1sPg = acopf.benchmark(opfdata, Pg, Qg, Vm, Va, 10, 10, 100, timeroutput)
 # println("Objective: ", ForwardDiff.value.(t1sPg))
-println("Objective gradient: ", ForwardDiff.partials.(t1sPg))
-# println("Objective Hessian: ", ForwardDiff.partials.(t2sPg))
+println("Objective gradient: ", ForwardDiff.partials.(t1sPg).values)
+println("Objective Hessian: ", [i.values for i in ForwardDiff.partials.(ForwardDiff.partials.(t2sPg).values)])
 # println("Constraint Hessian: ", ForwardDiff.partials.(t2srbalconst))
 show(timeroutput)
-return opfmodel
+return nothing
 end
 
-opfmodel = main()
+main()
