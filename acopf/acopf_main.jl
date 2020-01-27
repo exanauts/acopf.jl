@@ -18,20 +18,22 @@ function main()
   opfdata = acopf.opf_loaddata(case)
 end
 @timeit timeroutput "model" begin
-  opfmodel, Pg, Qg, Vm, Va = acopf.acopf_model(opfdata)
+  opfmodel, Pg, Qg, Vm, Va = acopf.model(opfdata)
 end
 # @timeit timeroutput "model ad" begin
 #   fobjective, fbalance = acopf_model_ad(opfdata)
 # end
 @timeit timeroutput "solve" begin
-  opfmodel,status = acopf.acopf_solve(opfmodel,opfdata)
+  opfmodel,status = acopf.solve(opfmodel,opfdata)
 end
 
 if status==MOI.LOCALLY_SOLVED
-  acopf.acopf_outputAll(opfmodel,opfdata, Pg, Qg, Vm, Va)
+  acopf.outputAll(opfmodel,opfdata, Pg, Qg, Vm, Va)
 end
 @show size(Pg,1)
-t1sPg, t2sPg = acopf.benchmark(opfdata, Pg, Qg, Vm, Va, 3, 3, 0, timeroutput)
+# Pg0 = value.(Pg) ; Qg0 = value.(Qg) ; Vm0 = value.(Vm) ; Va0 = value.(Va)
+Pg0, Qg0, Vm0, Va0 = acopf.initialPt_IPOPT(opfdata)
+t1sPg, t2sPg = acopf.benchmark(opfdata, Pg0, Qg0, Vm0, Va0, 3, 3, 0, timeroutput)
 # t1sPg, t1sPg = acopf.benchmark(opfdata, Pg, Qg, Vm, Va, size(Pg,1), size(Pg,1), 100, timeroutput)
 # t1sPg, t1sPg = acopf.benchmark(opfdata, Pg, Qg, Vm, Va, 10, 10, 100, timeroutput)
 # println("Objective: ", ForwardDiff.value.(t1sPg))

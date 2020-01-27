@@ -9,17 +9,17 @@ using CuArrays, CUDAnative
 using ForwardDiff
 using TimerOutputs
 
-export acopf_solve, opf_loaddata, acopf_model
-export create_arrays, objective, acopf_outputAll, constraints 
-export acopf_initialPt_IPOPT
+export solve, opf_loaddata, model
+export create_arrays, objective, outputAll, constraints 
+export initialPt_IPOPT
 export myseed!
 
-function acopf_solve(opfmodel, opf_data)
+function solve(opfmodel, opf_data)
    
   # 
   # Initial point - needed especially for pegase cases
   #
-  Pg0,Qg0,Vm0,Va0 = acopf_initialPt_IPOPT(opf_data)
+  Pg0,Qg0,Vm0,Va0 = initialPt_IPOPT(opf_data)
   opfmodel[:Pg] = Pg0  
   opfmodel[:Qg] = Qg0
   opfmodel[:Vm] = Vm0
@@ -33,7 +33,7 @@ function acopf_solve(opfmodel, opf_data)
   return opfmodel,status
 end
 
-function acopf_model(opf_data)
+function model(opf_data)
   #shortcuts for compactness
   lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
@@ -484,7 +484,7 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
   return
 end
 
-function acopf_outputAll(opfmodel, opf_data, Pg, Qg, Va, Vm)
+function outputAll(opfmodel, opf_data, Pg, Qg, Va, Vm)
   #shortcuts for compactness
   lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
@@ -566,7 +566,7 @@ end
 
 
 # Compute initial point for IPOPT based on the values provided in the case data
-function acopf_initialPt_IPOPT(opfdata)
+function initialPt_IPOPT(opfdata)
   Pg=zeros(length(opfdata.generators)); Qg=zeros(length(opfdata.generators)); i=1
   for g in opfdata.generators
     # set the power levels in in between the bounds as suggested by matpower 
@@ -626,10 +626,10 @@ function benchmark(opfdata, Pg, Qg, Vm, Va, npartials, mpartials, loops, timerou
   end
 
   @timeit timeroutput "t1s seeding" begin
-  t1scuPg = acopf.myseed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Pg,1)), value.(Pg), t1sseeds, timeroutput)
-  t1scuQg = ForwardDiff.seed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Qg,1)), value.(Qg))
-  t1scuVa = ForwardDiff.seed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Va,1)), value.(Va))
-  t1scuVm = ForwardDiff.seed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Vm,1)), value.(Vm))
+  t1scuPg = acopf.myseed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Pg,1)), Pg, t1sseeds, timeroutput)
+  t1scuQg = ForwardDiff.seed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Qg,1)), Qg)
+  t1scuVa = ForwardDiff.seed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Va,1)), Va)
+  t1scuVm = ForwardDiff.seed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Vm,1)), Vm)
   end
   # @show t1scuPg
 
