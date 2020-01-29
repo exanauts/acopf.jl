@@ -137,60 +137,19 @@ function model(opf_data)
 end
 
 struct CompArrays
-  cuPg
-  cuQg
-  cuVa
-  cuVm
-  baseMVA
-  nbus
-  nline
-  ngen
-  coeff0
-  coeff1
-  coeff2
-  viewToR
-  viewFromR
-  viewToI
-  viewFromI
-  viewVmTo
-  viewVmFrom
-  viewVaTo
-  viewVaFrom
-  viewYffR
-  viewYttR
-  viewYffI
-  viewYttI
-  cuYffR 
-  cuYffI
-  cuYttR
-  cuYttI
-  cuYftR
-  cuYftI
-  cuYtfR
-  cuYtfI
-  cuYshR
-  cuYshI
-  viewPg
-  viewQg
-  cuPd
-  cuQd
+  cuPg ; cuQg ; cuVa ; cuVm
+  baseMVA ;nbus ; nline ; ngen
+  coeff0 ; coeff1 ; coeff2
+  viewToR ; viewFromR ; viewToI ; viewFromI
+  viewVmTo ; viewVmFrom ; viewVaTo ; viewVaFrom
+  viewYffR ; viewYttR ; viewYffI ; viewYttI
+  cuYffR ; cuYffI ; cuYttR ; cuYttI ; cuYftR ; cuYftI ; cuYtfR ; cuYtfI ; cuYshR ; cuYshI
+  viewPg ; viewQg
+  cuPd ; cuQd
   cuflowmax
-  Yff_abs2 
-  Yft_abs2
-  Ytf_abs2
-  Ytt_abs2
-  Yrefrom
-  Yimfrom
-  Yreto
-  Yimto
-  viewVmToFromLines
-  viewcuYftRFromLines
-  viewVaToFromLines
-  viewcuYftIFromLines
-  viewVmFromToLines
-  viewcuYtfRToLines
-  viewVaFromToLines
-  viewcuYtfIToLines
+  Yff_abs2 ; Yft_abs2 ; Ytf_abs2 ; Ytt_abs2
+  Yrefrom ; Yimfrom ; Yreto ; Yimto
+  viewVmToFromLines ; viewcuYftRFromLines ; viewVaToFromLines ; viewcuYftIFromLines ; viewVmFromToLines ; viewcuYtfRToLines ; viewVaFromToLines ; viewcuYtfIToLines
 end
 
 function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Difftype) where T
@@ -297,69 +256,46 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
   Ytf_abs2 .= cuYtfR.^2 .+ cuYtfI.^2; Ytt_abs2 .= cuYttR.^2 .+ cuYttI.^2
   Yrefrom .= cuYffR .* cuYftR .+ cuYffI .* cuYftI; Yimfrom .= .- cuYffR .* cuYftI .+ cuYffI .* cuYftR
   Yreto   .= cuYtfR .* cuYttR .+ cuYtfI .* cuYttI; Yimto   .= .- cuYtfR .* cuYttI .+ cuYtfI .* cuYttR
-  @show fromconnect = maximum(size.(cuFromLines,1))
-  viewVmToFromLines   = CuArray{Difftype, 2, Nothing}(undef, fromconnect, nbus)
-  viewcuYftRFromLines = CuArray{Difftype, 2, Nothing}(undef, fromconnect, nbus)
-  viewVaToFromLines   = CuArray{Difftype, 2, Nothing}(undef, fromconnect, nbus)
-  viewcuYftIFromLines = CuArray{Difftype, 2, Nothing}(undef, fromconnect, nbus)
-  # viewVmToFromLines = Array{SubArray,1}(undef, nbus)
-  # viewcuYftRFromLines = Array{SubArray,1}(undef, nbus)
-  # viewVaToFromLines = Array{SubArray,1}(undef, nbus)
-  # viewcuYftIFromLines = Array{SubArray,1}(undef, nbus)
+  fromconnect = maximum(size.(cuFromLines,1))
+  # @show YftI
+  # @show cuYftI
+  viewVmToFromLines   = CuArray{Difftype, 2, Nothing}(zeros(Difftype, fromconnect, nbus))
+  viewcuYftRFromLines = CuArray{Difftype, 2, Nothing}(zeros(Difftype, fromconnect, nbus))
+  viewVaToFromLines   = CuArray{Difftype, 2, Nothing}(zeros(Difftype, fromconnect, nbus))
+  viewcuYftIFromLines = CuArray{Difftype, 2, Nothing}(zeros(Difftype, fromconnect, nbus))
+  map = Array{CuArray{Int64, 1, Nothing},1}(undef, nbus)
   
-  function filltopo(to,from, range)
-    for (j,i) in enumerate(range)
-      to[j] = from[i] 
+  function filltopo(to, from, ranges, nbus)
+    # @show range
+    for b in 1:nbus
+      for (j,i) in enumerate(ranges[b])
+        # @show i,j
+        to[j,b] = from[i] 
+      end
     end
   end
-  # for b in 1:nbus @show size(cuVm[mapbus2lineto[cuFromLines[b]]]) end
-  # for b in 1:nbus @show size(viewVmToFromLines[b,:]) end
-  # for b in 1:nbus @show viewVmToFromLines[b,:] end
-  # for b in 1:nbus @show cuVm[mapbus2lineto[cuFromLines[b]]] end
-  # for b in 1:nbus filltopo(viewVmToFromLines[b,:], mapbus2lineto[cuFromLines[b]]) end
-  for b in 1:nbus filltopo(viewVmToFromLines[:,b], cuVm, mapbus2lineto[cuFromLines[b]]) end
-  for b in 1:nbus filltopo(viewcuYftRFromLines[:,b], cuYftR, cuFromLines[b]) end 
-  for b in 1:nbus filltopo(viewVaToFromLines[:,b], cuVa, mapbus2lineto[cuFromLines[b]]) end
-  for b in 1:nbus filltopo(viewcuYftIFromLines[:,b], cuYftI, cuFromLines[b]) end
+  # @show typeof(cuFromLines)
+  for b in 1:nbus map[b] = mapbus2lineto[cuFromLines[b]] end
+  filltopo(viewVmToFromLines, cuVm, map, nbus)
+  # @show YftR
+  # @show cuFromLines
+  filltopo(viewcuYftRFromLines, cuYftR, cuFromLines, nbus)
+  # @show viewcuYftRFromLines
+  filltopo(viewVaToFromLines, cuVa, map, nbus)
+  filltopo(viewcuYftIFromLines, cuYftI, cuFromLines, nbus)
 
-  # for b in 1:nbus viewVmToFromLines[b]   = view(viewVmTo, cuFromLines[b]) end
-  # for b in 1:nbus viewcuYftRFromLines[b] = view(cuYftR, cuFromLines[b]) end 
-  # for b in 1:nbus viewVaToFromLines[b]   = view(viewVaTo, cuFromLines[b]) end
-  # for b in 1:nbus viewcuYftIFromLines[b] = view(cuYftI, cuFromLines[b]) end
+  toconnect = maximum(size.(cuToLines,1))
+  viewVmFromToLines = CuArray{Difftype, 2, Nothing}(zeros(Difftype, toconnect, nbus)) 
+  viewcuYtfRToLines = CuArray{Difftype, 2, Nothing}(zeros(Difftype, toconnect, nbus))
+  viewVaFromToLines = CuArray{Difftype, 2, Nothing}(zeros(Difftype, toconnect, nbus))
+  viewcuYtfIToLines = CuArray{Difftype, 2, Nothing}(zeros(Difftype, toconnect, nbus))
+  for b in 1:nbus map[b] = mapbus2linefrom[cuToLines[b]] end
+  filltopo(viewVmFromToLines, cuVm, map, nbus)
+  filltopo(viewcuYtfRToLines, cuYtfR, cuToLines, nbus)
+  filltopo(viewVaFromToLines, cuVa, map, nbus) 
+  filltopo(viewcuYtfIToLines, cuYtfI, cuToLines, nbus)
+  # @show viewcuYftIFromLines
 
-  # for b in 1:nbus @show cuVm[mapbus2lineto[cuFromLines[b]]] end
-  # for b in 1:nbus @show viewVmToFromLines[b] end
-
-  @show toconnect = maximum(size.(cuToLines,1))
-  viewVmFromToLines = CuArray{Difftype, 2, Nothing}(undef, toconnect, nbus) 
-  viewcuYtfRToLines = CuArray{Difftype, 2, Nothing}(undef, toconnect, nbus)
-  viewVaFromToLines = CuArray{Difftype, 2, Nothing}(undef, toconnect, nbus)
-  viewcuYtfIToLines = CuArray{Difftype, 2, Nothing}(undef, toconnect, nbus)
-  for b in 1:nbus filltopo(viewVmFromToLines[:,b], cuVm, mapbus2linefrom[cuToLines[b]]) end
-  for b in 1:nbus filltopo(viewcuYtfRToLines[:,b], cuYtfR, cuToLines[b]) end 
-  for b in 1:nbus filltopo(viewVaFromToLines[:,b], cuVa, mapbus2linefrom[cuToLines[b]]) end
-  for b in 1:nbus filltopo(viewcuYtfIToLines[:,b], cuYtfI, cuToLines[b]) end
-
-  # viewVmToFromLines = Array{SubArray,1}(undef, nbus)
-  # viewVaFromFromLines = Array{SubArray,1}(undef, nbus)
-  # for b in 1:nbus viewVmToFromLines[b]   = view(viewVmTo, FromLines[b]) end
-  # for b in 1:nbus viewcuYftRFromLines[b] = view(cuYftR, FromLines[b]) end 
-  # for b in 1:nbus viewVaToFromLines[b]   = view(viewVaTo, FromLines[b]) end
-  # for b in 1:nbus viewcuYftIFromLines[b] = view(cuYftI, FromLines[b]) end
-
-  # viewVmFromToLines = Array{SubArray,1}(undef, nbus)
-  # viewcuYtfRToLines = Array{SubArray,1}(undef, nbus)
-  # viewVaFromToLines = Array{SubArray,1}(undef, nbus)
-  # viewcuYtfIToLines = Array{SubArray,1}(undef, nbus)
-  # for b in 1:nbus 
-  #   arrays.viewFromR[b] = sum(arrays.cuVm[b] .* view(arrays.viewVmFrom, FromLines[b]) .* (view(arrays.cuYtfR, FromLines[b]) .* CUDAnative.cos.(arrays.cuVa[b] .- view(arrays.viewVaFrom, FromLines[b])) .+ view(arrays.cuYtfI, FromLines[b]).* CUDAnative.sin.(arrays.cuVa[b] .- view(arrays.viewVaFrom, FromLines[b])))) 
-  # end
-  # for b in 1:nbus 
-  #   arrays.viewToI[b] = sum(arrays.cuVm[b] .* view(arrays.viewVmTo, FromLines[b]) .* (.- view(arrays.cuYftI, FromLines[b]) .* CUDAnative.cos.(arrays.cuVa[b] .- view(arrays.viewVaTo, FromLines[b])) .+ view(arrays.cuYftR, FromLines[b]).* CUDAnative.sin.(arrays.cuVa[b] .- view(arrays.viewVaTo, FromLines[b])))) 
-  # end
-  # for b in 1:nbus 
-  #   arrays.viewFromI[b] = sum(arrays.cuVm[b] .* view(arrays.viewVmFrom, FromLines[b]) .* (.- view(arrays.cuYtfI, FromLines[b]) .* CUDAnative.cos.(arrays.cuVa[b] .- view(arrays.viewVaFrom, FromLines[b])) .+ view(arrays.cuYtfR, FromLines[b]).* CUDAnative.sin.(arrays.cuVa[b] .- view(arrays.viewVaFrom, FromLines[b])))) 
-  # end
   return CompArrays(cuPg, cuQg, cuVa, cuVm, baseMVA, nbus, nline, ngen, 
                     coeff0, coeff1, coeff2, # balance constraints
                     viewToR, viewFromR, viewToI, viewFromI,
@@ -402,7 +338,7 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
     index = threadIdx().x    # this example only requires linear indexing, so just use `x`
     stride = blockDim().x
     # @cuprintf("Greetings from block %ld, thread %ld!\n", Int64(CUDAnative.blockIdx().x), Int64(CUDAnative.threadIdx().x))
-    for b in index:stride:size(viewToR,1)
+    for b in 1:size(viewToR,1)
       viewToR[b] = 0.0
       for c in 1:size(viewVmToFromLines,1)
         @inbounds viewToR[b] += cuVm[b] * viewVmToFromLines[c,b] * (viewcuYftRFromLines[c,b] * CUDAnative.cos(cuVa[b] - viewVaToFromLines[c,b]) + viewcuYftIFromLines[c,b] * CUDAnative.sin(cuVa[b] - viewVaToFromLines[c,b])) 
@@ -415,7 +351,7 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
                                     cuVa, viewVaFromToLines, viewcuYtfIToLines) 
     index = threadIdx().x    # this example only requires linear indexing, so just use `x`
     stride = blockDim().x
-    for b in index:stride:size(viewFromR,1)
+    for b in 1:size(viewFromR,1)
       viewFromR[b] = 0.0
       for c in 1:size(viewVmFromToLines,1)
         @inbounds viewFromR[b] += cuVm[b] * viewVmFromToLines[c,b] * (viewcuYtfRToLines[c,b] * CUDAnative.cos(cuVa[b] - viewVaFromToLines[c,b]) + viewcuYtfIToLines[c,b] * CUDAnative.sin(cuVa[b] - viewVaFromToLines[c,b])) 
@@ -428,10 +364,11 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
                                   cuVa, viewVaToFromLines, viewcuYftRFromLines) 
     index = threadIdx().x    # this example only requires linear indexing, so just use `x`
     stride = blockDim().x
-    for b in index:stride:size(viewToI,1)
+    # for b in index:stride:size(viewToI,1)
+    for b in 1:size(viewToI,1)
       viewToI[b] = 0.0
       for c in 1:size(viewVmToFromLines,1)
-        @inbounds viewToI[b] += cuVm[b] * viewVmToFromLines[c,b] * (- viewcuYftIFromLines[c,b] * CUDAnative.cos(cuVa[b] - viewVaToFromLines[c,b]) + viewcuYftRFromLines[c,b] * CUDAnative.sin(cuVa[b] - viewVaToFromLines[c,b])) 
+        @inbounds viewToI[b] += cuVm[b] * viewVmToFromLines[c,b] * ((- viewcuYftIFromLines[c,b]) * CUDAnative.cos(cuVa[b] - viewVaToFromLines[c,b]) + viewcuYftRFromLines[c,b] * CUDAnative.sin(cuVa[b] - viewVaToFromLines[c,b])) 
       end
     end
     return nothing
@@ -441,45 +378,74 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
                                     cuVa, viewVaFromToLines, viewcuYtfRToLines) 
     index = threadIdx().x    # this example only requires linear indexing, so just use `x`
     stride = blockDim().x
-    for b in index:stride:size(viewFromI,1)
+    for b in 1:size(viewFromI,1)
       viewFromI[b] = 0.0
       for c in 1:size(viewVmFromToLines,1)
-        @inbounds viewFromI[b] += cuVm[b] * viewVmFromToLines[c,b] * (- viewcuYtfIToLines[c,b] * CUDAnative.cos(cuVa[b] - viewVaFromToLines[c,b]) + viewcuYtfRToLines[c,b] * CUDAnative.sin(cuVa[b] - viewVaFromToLines[c,b])) 
+        @inbounds viewFromI[b] += cuVm[b] * viewVmFromToLines[c,b] * ((- viewcuYtfIToLines[c,b]) * CUDAnative.cos(cuVa[b] - viewVaFromToLines[c,b]) + viewcuYtfRToLines[c,b] * CUDAnative.sin(cuVa[b] - viewVaFromToLines[c,b])) 
       end
     end
     return nothing
   end
+  # @show arrays.viewVmToFromLines
+  # @show arrays.viewVmFromToLines
+  # @show size(arrays.viewToI)
+  # @show size(arrays.viewVmToFromLines)
+  # @show size(arrays.viewcuYftIFromLines)
+  # @show typeof(arrays.viewToI)
+  # @show typeof(arrays.viewVmToFromLines)
+  # @show typeof(arrays.viewcuYftIFromLines)
+  # @show typeof(arrays.cuVm)
   CuArrays.@sync begin
-  @cuda threads=128 blocks=64 gpu_term1(arrays.viewToR, arrays.cuVm, arrays.viewVmToFromLines, arrays.viewcuYftRFromLines, 
+  @cuda threads=1 blocks=1 gpu_term1(arrays.viewToR, arrays.cuVm, arrays.viewVmToFromLines, arrays.viewcuYftRFromLines, 
                                     arrays.cuVa, arrays.viewVaToFromLines, arrays.viewcuYftIFromLines) 
 
-  @cuda threads=128 blocks=64 gpu_term2(arrays.viewFromR, arrays.cuVm, arrays.viewVmFromToLines, arrays.viewcuYtfRToLines, 
+  @cuda threads=1 blocks=1 gpu_term2(arrays.viewFromR, arrays.cuVm, arrays.viewVmFromToLines, arrays.viewcuYtfRToLines, 
                                     arrays.cuVa, arrays.viewVaFromToLines, arrays.viewcuYtfIToLines) 
 
-  @cuda threads=128 blocks=64 gpu_term3(arrays.viewToI, arrays.cuVm, arrays.viewVmToFromLines, arrays.viewcuYftIFromLines, 
+  @cuda threads=1 blocks=1 gpu_term3(arrays.viewToI, arrays.cuVm, arrays.viewVmToFromLines, arrays.viewcuYftIFromLines, 
                                   arrays.cuVa, arrays.viewVaToFromLines, arrays.viewcuYftRFromLines) 
 
-  @cuda threads=128 blocks=64 gpu_term4(arrays.viewFromI, arrays.cuVm, arrays.viewVmFromToLines, arrays.viewcuYtfIToLines, 
+  @cuda threads=1 blocks=1 gpu_term4(arrays.viewFromI, arrays.cuVm, arrays.viewVmFromToLines, arrays.viewcuYtfIToLines, 
                                     arrays.cuVa, arrays.viewVaFromToLines, arrays.viewcuYtfRToLines) 
    
   end
   end
   # @show arrays.viewToR
   @timeit timeroutput "balance constraints" begin
-  rbalconst .= (((arrays.viewYffR .+ arrays.viewYttR) .+ arrays.cuYshR) .* arrays.cuVm.^2) .+ arrays.viewToR .+ arrays.viewFromR .- ((arrays.viewPg .* baseMVA) .- arrays.cuPd) ./ baseMVA 
+  rbalconst .= (
+               (arrays.viewYffR .+ arrays.viewYttR .+ arrays.cuYshR) .* arrays.cuVm.^2 
+               .+ arrays.viewToR    # gpu term 1 
+               .+ arrays.viewFromR  # gpu term 2
+               .- (((arrays.viewPg .* baseMVA) .- arrays.cuPd) ./ baseMVA) 
+               )
 
-  ibalconst .= (((arrays.viewYffI .+ arrays.viewYttI) .- arrays.cuYshI) .* arrays.cuVm.^2) .+ arrays.viewToI .+ arrays.viewFromI .- ((arrays.viewQg .* baseMVA) .- arrays.cuQd) ./ baseMVA 
+  ibalconst .= (
+               (arrays.viewYffI .+ arrays.viewYttI .- arrays.cuYshI) .* arrays.cuVm.^2 
+               .+ arrays.viewToI    # gpu term 3
+               .+ arrays.viewFromI  # gpu term 4
+               .- (((arrays.viewQg .* baseMVA) .- arrays.cuQd) ./ baseMVA) 
+               )
   end
 
   # branch apparent power limits (from bus)
   @timeit timeroutput "line constraints" begin
-  limitsto .= (arrays.viewVmFrom.^2 .* (arrays.Yff_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Yft_abs2 .* arrays.viewVmTo.^2
-           .+ 2 .* arrays.viewVmFrom .* arrays.viewVmTo .* (arrays.Yrefrom .* CUDAnative.cos.(arrays.viewVaFrom .- arrays.viewVaTo) .- arrays.Yimfrom .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
-           .- arrays.cuflowmax)
+  limitsto .= (
+              (arrays.viewVmFrom.^2 
+              .* (arrays.Yff_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Yft_abs2 .* arrays.viewVmTo.^2
+              .+ 2.0 .* arrays.viewVmFrom .* arrays.viewVmTo 
+              .* (arrays.Yrefrom .* CUDAnative.cos.(arrays.viewVaFrom .- arrays.viewVaTo) 
+                  .- arrays.Yimfrom .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
+              .- arrays.cuflowmax)
+              )
   # branch apparent power limits (to bus)
-  limitsfrom .= (arrays.viewVmTo.^2 .* (arrays.Ytf_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Ytt_abs2 .* arrays.viewVmTo.^2
-             .+ 2 .* arrays.viewVmFrom .* arrays.viewVmTo .* (arrays.Yreto .* CUDAnative.cos.(arrays.viewVaFrom - arrays.viewVaTo) .- arrays.Yimto .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
-             .- arrays.cuflowmax)
+  limitsfrom .= ( 
+                (arrays.viewVmTo.^2 
+                .* (arrays.Ytf_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Ytt_abs2 .* arrays.viewVmTo.^2
+                .+ 2.0 .* arrays.viewVmFrom .* arrays.viewVmTo 
+                .* (arrays.Yreto .* CUDAnative.cos.(arrays.viewVaFrom - arrays.viewVaTo) 
+                    .- arrays.Yimto .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
+                .- arrays.cuflowmax)
+                )
   end
   return
 end
@@ -607,7 +573,7 @@ function myseed!(duals::AbstractArray{ForwardDiff.Dual{T,V,N}}, x,
   end
     return duals
 end
-function benchmark(opfdata, Pg, Qg, Vm, Va, npartials, mpartials, loops, timeroutput)
+function benchmark(Pg, Qg, Vm, Va, npartials, mpartials, loops, timeroutput, opfdata)
   
   t1s{N} =  ForwardDiff.Dual{Nothing,Float64, N} where N
   t2s{M,N} =  ForwardDiff.Dual{Nothing,t1s{N}, M} where {N, M}
