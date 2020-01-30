@@ -561,16 +561,16 @@ function myseed!(duals::AbstractArray{ForwardDiff.Dual{T,V,N}}, x,
                seeds::AbstractArray{ForwardDiff.Partials{N,V}}, timeroutput) where {T,V,N}
 
   @timeit timeroutput "myseed 1" begin
-    for i in 1:N
+    for i in 1:size(duals,1)
         duals[i] = ForwardDiff.Dual{T,V,N}(x[i], seeds[i])
     end
   end
-  @timeit timeroutput "myseed 2" begin
-    zeroseed::ForwardDiff.Partials{N,V} = zero(ForwardDiff.Partials{N,V}) 
-    for i in N+1:size(duals,1)
-        duals[i] = ForwardDiff.Dual{T,V,N}(x[i], zeroseed)
-    end
-  end
+  # @timeit timeroutput "myseed 2" begin
+  #   zeroseed::ForwardDiff.Partials{N,V} = zero(ForwardDiff.Partials{N,V}) 
+  #   for i in N+1:size(duals,1)
+  #       duals[i] = ForwardDiff.Dual{T,V,N}(x[i], zeroseed)
+  #   end
+  # end
     return duals
 end
 function benchmark(Pg, Qg, Vm, Va, npartials, mpartials, loops, timeroutput, opfdata)
@@ -678,12 +678,12 @@ function benchmark(Pg, Qg, Vm, Va, npartials, mpartials, loops, timeroutput, opf
   end
   println("Initial t2s constraints")
   @timeit timeroutput "Initial t2s constraints" begin
-  acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t1sarrays, timeroutput)
+  acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t2sarrays, timeroutput)
   end
   println("t2s constraints")
   @timeit timeroutput "t2s constraints" begin
     for i in 1:loops
-      acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t1sarrays, timeroutput)
+      acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t2sarrays, timeroutput)
     end
   end
   return t1sPg, t2sPg

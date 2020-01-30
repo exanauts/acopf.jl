@@ -39,9 +39,9 @@ t1sPg, t2sPg = acopf.benchmark(Pg0, Qg0, Vm0, Va0, 3, 3, 0, timeroutput, opfdata
 IpoptTest.test(Pg0, Qg0, Vm0, Va0, 3, 3, timeroutput, case)
 # t1sPg, t1sPg = acopf.benchmark(opfdata, Pg, Qg, Vm, Va, size(Pg,1), size(Pg,1), 100, timeroutput)
 # t1sPg, t1sPg = acopf.benchmark(opfdata, Pg, Qg, Vm, Va, 10, 10, 100, timeroutput)
-println("Objective: ", ForwardDiff.value.(t1sPg))
-println("Objective gradient: ", ForwardDiff.partials.(t1sPg).values)
-println("Objective Hessian: ", [i.values for i in ForwardDiff.partials.(ForwardDiff.partials.(t2sPg).values)])
+# println("Objective: ", ForwardDiff.value.(t1sPg))
+# println("Objective gradient: ", ForwardDiff.partials.(t1sPg).values)
+# println("Objective Hessian: ", [i.values for i in ForwardDiff.partials.(ForwardDiff.partials.(t2sPg).values)])
 # println("Constraint Hessian: ", ForwardDiff.partials.(t2srbalconst))
 show(timeroutput)
 return nothing

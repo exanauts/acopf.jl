@@ -27,118 +27,195 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case)
   m = 2 * nbus + 2 * nline
   cuPg = CuArray{Float64,1,Nothing}(zeros(Float64, nPg))
   cuQg = CuArray{Float64,1,Nothing}(zeros(Float64, nQg))
-  cuVm = CuArray{Float64,1,Nothing}(zeros(Float64, nVm))
   cuVa = CuArray{Float64,1,Nothing}(zeros(Float64, nVa))
+  cuVm = CuArray{Float64,1,Nothing}(zeros(Float64, nVm))
   curbalconst = CuArray{Float64,1,Nothing}(zeros(Float64, nbus))
   cuibalconst = CuArray{Float64,1,Nothing}(zeros(Float64, nbus))
   culimitsto = CuArray{Float64,1,Nothing}(zeros(Float64, nline))
   culimitsfrom = CuArray{Float64,1,Nothing}(zeros(Float64, nline))
   function eval_f(x::Vector{Float64})
+    println("Returning objective")
     cuPg[:] = x[1:nPg] 
     cuQg[:] = x[nPg+1:nPg+nQg] 
-    cuVm[:] = x[nPg+nQg+1:nPg+nQg+nVm] 
-    cuVa[:] = x[nPg+nQg+nVm+1:end] 
+    cuVa[:] = x[nPg+nQg+1:nPg+nQg+nVa] 
+    cuVm[:] = x[nPg+nQg+nVa+1:end] 
     arrays = acopf.create_arrays(cuPg, cuQg, cuVa, cuVm, opfdata, Float64)
+    println("Done returning objective")
     return acopf.objective(opfdata, arrays)
     # return x[1] * x[4] * (x[1] + x[2] + x[3]) + x[3]
   end
 
   function eval_g(x::Vector{Float64}, g::Vector{Float64})
+    println("Returning gradient")
     cuPg[:] = x[1:nPg] 
     cuQg[:] = x[nPg+1:nPg+nQg] 
-    cuVm[:] = x[nPg+nQg+1:nPg+nQg+nVm] 
-    cuVa[:] = x[nPg+nQg+nVm+1:end] 
+    cuVa[:] = x[nPg+nQg+1:nPg+nQg+nVa] 
+    cuVm[:] = x[nPg+nQg+nVa+1:end] 
     arrays = acopf.create_arrays(cuPg, cuQg, cuVa, cuVm, opfdata, Float64)
-    @show x
-    @show cuVm
+    # @show x
+    # @show cuVm
     acopf.constraints(curbalconst, cuibalconst, culimitsto, culimitsfrom, opfdata, arrays, timeroutput)
     g[1:nbus] = curbalconst[:]
     g[nbus+1:2*nbus] = cuibalconst[:]
     g[2*nbus+1:2*nbus+nline] = culimitsto[:]
     g[2*nbus+nline+1:end] = culimitsfrom[:]
-    @show g
+    println("Done returning gradient")
+    # @show g
   end
 
   function eval_grad_f(x::Vector{Float64}, grad_f::Vector{Float64})
-    # Bad: grad_f    = zeros(4)  # Allocates new array
-    # OK:  grad_f[:] = zeros(4)  # Modifies 'in place'
-    grad_f[1] = x[1] * x[4] + x[4] * (x[1] + x[2] + x[3])
-    grad_f[2] = x[1] * x[4]
-    grad_f[3] = x[1] * x[4] + 1
-    grad_f[4] = x[1] * (x[1] + x[2] + x[3])
+    t1s{N} =  ForwardDiff.Dual{Nothing,Float64, N} where N
+    t1sseedvec = zeros(Float64, ngen)
+    t1sseeds = Array{ForwardDiff.Partials{ngen,Float64},1}(undef, ngen)
+    for i in 1:ngen
+      t1sseedvec[i] = 1.0
+      t1sseeds[i] = ForwardDiff.Partials{ngen, Float64}(NTuple{ngen, Float64}(t1sseedvec))
+      t1sseedvec[i] = 0.0
+    end
+    t1scuPg = acopf.myseed!(CuArray{t1s{ngen}, 1, Nothing}(undef, ngen), x[1:nPg], t1sseeds, timeroutput)
+    t1scuQg = ForwardDiff.seed!(CuArray{t1s{ngen}, 1, Nothing}(undef, ngen), x[nPg+1:nPg+nQg])
+    t1scuVa = ForwardDiff.seed!(CuArray{t1s{ngen}, 1, Nothing}(undef, nbus), x[nPg+nQg+1:nPg+nQg+nVa])
+    t1scuVm = ForwardDiff.seed!(CuArray{t1s{ngen}, 1, Nothing}(undef, nbus), x[nPg+nQg+nVa+1:end])
+    t1sarrays = acopf.create_arrays(t1scuPg, t1scuQg, t1scuVa, t1scuVm, opfdata, t1s{ngen})
+    t1sgrad = acopf.objective(opfdata, t1sarrays)
+    grad_f = ForwardDiff.partials.(t1sgrad).values
   end
 
   function eval_jac_g(x::Vector{Float64}, mode, rows::Vector{Int32}, cols::Vector{Int32}, values::Vector{Float64})
+    nconstraints = 2*nbus + 2*nline #number of constraints
     if mode == :Structure
-      # Constraint (row) 1
-      rows[1] = 1; cols[1] = 1
-      rows[2] = 1; cols[2] = 2
-      rows[3] = 1; cols[3] = 3
-      rows[4] = 1; cols[4] = 4
-      # Constraint (row) 2
-      rows[5] = 2; cols[5] = 1
-      rows[6] = 2; cols[6] = 2
-      rows[7] = 2; cols[7] = 3
-      rows[8] = 2; cols[8] = 4
+      println("Returning Jacobian structure")
+      idx = 1
+      for c in 1:nconstraints #number of constraints
+        for i in 1:n # number of variables
+          rows[idx] = c ; cols[idx] = i
+          idx += 1 
+        end
+      end
+      println("Done returning Jacobian structure")
     else
-      # Constraint (row) 1
-      values[1] = x[2]*x[3]*x[4]  # 1,1
-      values[2] = x[1]*x[3]*x[4]  # 1,2
-      values[3] = x[1]*x[2]*x[4]  # 1,3
-      values[4] = x[1]*x[2]*x[3]  # 1,4
-      # Constraint (row) 2
-      values[5] = 2*x[1]  # 2,1
-      values[6] = 2*x[2]  # 2,2
-      values[7] = 2*x[3]  # 2,3
-      values[8] = 2*x[4]  # 2,4
+      println("Returning Jacobian values")
+      t1s{N} =  ForwardDiff.Dual{Nothing,Float64, N} where N
+      t1sseedvec = zeros(Float64, n)
+      t1sseeds = Array{ForwardDiff.Partials{n,Float64},1}(undef, n)
+      for i in 1:n
+        t1sseedvec[i] = 1.0
+        t1sseeds[i] = ForwardDiff.Partials{n, Float64}(NTuple{n, Float64}(t1sseedvec))
+        t1sseedvec[i] = 0.0
+      end
+      t1scuPg = acopf.myseed!(CuArray{t1s{n}, 1, Nothing}(undef, ngen), x[1:nPg], t1sseeds[1:nPg], timeroutput)
+      t1scuQg = acopf.myseed!(CuArray{t1s{n}, 1, Nothing}(undef, ngen), x[nPg+1:nPg+nQg], t1sseeds[nPg+1:nPg+nQg], timeroutput)
+      t1scuVa = acopf.myseed!(CuArray{t1s{n}, 1, Nothing}(undef, nbus), x[nPg+nQg+1:nPg+nQg+nVa], t1sseeds[nPg+nQg+1:nPg+nQg+nVa], timeroutput)
+      t1scuVm = acopf.myseed!(CuArray{t1s{n}, 1, Nothing}(undef, nbus), x[nPg+nQg+nVa+1:end], t1sseeds[nPg+nQg+nVa+1:end], timeroutput)
+      T = typeof(t1scuQg)
+      t1srbalconst = T(undef, length(opfdata.buses))
+      t1sibalconst = T(undef, length(opfdata.buses))
+      t1slimitsto = T(undef, length(opfdata.lines))
+      t1slimitsfrom = T(undef, length(opfdata.lines))
+      t1sarrays = acopf.create_arrays(t1scuPg, t1scuQg, t1scuVa, t1scuVm, opfdata, t1s{n})
+      acopf.constraints(t1srbalconst, t1sibalconst, t1slimitsto, t1slimitsfrom, opfdata, t1sarrays, timeroutput)
+      for i in 1:nbus
+        values[(i-1) * n + 1 : i*n] .= ForwardDiff.partials.(t1srbalconst[i]).values
+      end
+      for i in 1:nbus
+        values[(i-1) * n + nbus + 1 : i*n + nbus] .= ForwardDiff.partials.(t1sibalconst[i]).values
+      end
+      for i in 1:nline
+        values[(i-1) * n + 2*nbus + 1 : i*n + 2*nbus] .= ForwardDiff.partials.(t1slimitsto[i]).values
+      end
+      for i in 1:nline
+        values[(i-1) * n + 2*nbus + nline + 1 : i*n + 2*nbus + nline] .= ForwardDiff.partials.(t1slimitsfrom[i]).values
+      end
+      println("Done returning Jacobian values")
     end
   end
 
   function eval_h(x::Vector{Float64}, mode, rows::Vector{Int32}, cols::Vector{Int32}, obj_factor::Float64, lambda::Vector{Float64}, values::Vector{Float64})
     if mode == :Structure
-      # Symmetric matrix, fill the lower left triangle only
+      println("Returning Hessian structure")
       idx = 1
-      for row = 1:4
-        for col = 1:row
+      for row = 1:n
+        for col = 1:n
           rows[idx] = row
           cols[idx] = col
           idx += 1
         end
       end
+      println("Done returning Hessian structure")
     else
-      # Again, only lower left triangle
-      # Objective
-      values[1] = obj_factor * (2*x[4])  # 1,1
-      values[2] = obj_factor * (  x[4])  # 2,1
-      values[3] = 0                      # 2,2
-      values[4] = obj_factor * (  x[4])  # 3,1
-      values[5] = 0                      # 3,2
-      values[6] = 0                      # 3,3
-      values[7] = obj_factor * (2*x[1] + x[2] + x[3])  # 4,1
-      values[8] = obj_factor * (  x[1])  # 4,2
-      values[9] = obj_factor * (  x[1])  # 4,3
-      values[10] = 0                     # 4,4
+      println("Returning Hessian values")
+      t1s{N} =  ForwardDiff.Dual{Nothing,Float64, N} where N
+      t1sseedvec = zeros(Float64, n)
+      t1sseeds = Array{ForwardDiff.Partials{n,Float64},1}(undef, n)
+      for i in 1:n
+        t1sseedvec[i] = 1.0
+        t1sseeds[i] = ForwardDiff.Partials{n, Float64}(NTuple{n, Float64}(t1sseedvec))
+        t1sseedvec[i] = 0.0
+      end
+      t1scuPg = acopf.myseed!(CuArray{t1s{n}, 1, Nothing}(undef, ngen), x[1:nPg], t1sseeds[1:nPg], timeroutput)
+      t1scuQg = acopf.myseed!(CuArray{t1s{n}, 1, Nothing}(undef, ngen), x[nPg+1:nPg+nQg], t1sseeds[nPg+1:nPg+nQg], timeroutput)
+      t1scuVa = acopf.myseed!(CuArray{t1s{n}, 1, Nothing}(undef, nbus), x[nPg+nQg+1:nPg+nQg+nVa], t1sseeds[nPg+nQg+1:nPg+nQg+nVa], timeroutput)
+      t1scuVm = acopf.myseed!(CuArray{t1s{n}, 1, Nothing}(undef, nbus), x[nPg+nQg+nVa+1:end], t1sseeds[nPg+nQg+nVa+1:end], timeroutput)
 
-      # First constraint
-      values[2] += lambda[1] * (x[3] * x[4])  # 2,1
-      values[4] += lambda[1] * (x[2] * x[4])  # 3,1
-      values[5] += lambda[1] * (x[1] * x[4])  # 3,2
-      values[7] += lambda[1] * (x[2] * x[3])  # 4,1
-      values[8] += lambda[1] * (x[1] * x[3])  # 4,2
-      values[9] += lambda[1] * (x[1] * x[2])  # 4,3
-
-      # Second constraint
-      values[1]  += lambda[2] * 2  # 1,1
-      values[3]  += lambda[2] * 2  # 2,2
-      values[6]  += lambda[2] * 2  # 3,3
-      values[10] += lambda[2] * 2  # 4,4
+      t2s{M,N} =  ForwardDiff.Dual{Nothing,t1s{N}, M} where {N, M}
+      t2sseedvec = Array{t1s{n},1}(undef, n)
+      t2sseeds = Array{ForwardDiff.Partials{n,t1s{n}},1}(undef, n)
+      t2sseedvec .= 0.0
+      for i in 1:n
+        t2sseedvec[i] = 1.0
+        t2sseeds[i] = ForwardDiff.Partials{n, t1s{n}}(NTuple{n, t1s{n}}(t2sseedvec))
+        t2sseedvec[i] = 0.0
+      end
+      println("Allocating t2s")
+      # t2scuPg = acopf.myseed!(CuArray{t2s{n,n}, 1, Nothing}(undef, ngen), t1scuPg, t2sseeds[1:nPg], timeroutput) 
+      # t2scuQg = acopf.myseed!(CuArray{t2s{n,n}, 1, Nothing}(undef, ngen), t1scuQg, t2sseeds[nPg+1:nPg+nQg], timeroutput)
+      # t2scuVa = acopf.myseed!(CuArray{t2s{n,n}, 1, Nothing}(undef, nbus), t1scuVa, t2sseeds[nPg+nQg+1:nPg+nQg+nVa], timeroutput)
+      # t2scuVm = acopf.myseed!(CuArray{t2s{n,n}, 1, Nothing}(undef, nbus), t1scuVm, t2sseeds[nPg+nQg+nVa+1:end], timeroutput) 
+      t2scuPg = ForwardDiff.seed!(CuArray{t2s{n,n}, 1, Nothing}(undef, ngen), t1scuPg)
+      t2scuQg = ForwardDiff.seed!(CuArray{t2s{n,n}, 1, Nothing}(undef, ngen), t1scuQg)
+      t2scuVa = ForwardDiff.seed!(CuArray{t2s{n,n}, 1, Nothing}(undef, nbus), t1scuVa)
+      t2scuVm = ForwardDiff.seed!(CuArray{t2s{n,n}, 1, Nothing}(undef, nbus), t1scuVm)
+      println("Done allocating t2s")
+      T = typeof(t2scuQg)
+      t2srbalconst = T(undef, length(opfdata.buses))
+      t2sibalconst = T(undef, length(opfdata.buses))
+      t2slimitsto = T(undef, length(opfdata.lines))
+      t2slimitsfrom = T(undef, length(opfdata.lines))
+      println("Create arrays")
+      t2sarrays = acopf.create_arrays(t2scuPg, t2scuQg, t2scuVa, t2scuVm, opfdata, t2s{n,n})
+      println("objective")
+      t2sPg = acopf.objective(opfdata, t2sarrays)
+      @show ForwardDiff.partials.(ForwardDiff.partials(t2scuPg[1]).values)
+      @show ForwardDiff.partials(t2scuPg[1].value)
+      # ForwardDiff.partials(t2scuPg[1])
+      @show typeof(t2sPg)
+      @show typeof(t2scuPg)
+      return
+      println("constraints")
+      acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t2sarrays, timeroutput)
+      println("print")
+      for (i, row) in enumerate(ForwardDiff.partials.(ForwardDiff.partials.(t2sPg).values))
+        for (j, col) in enumerate(row.values)
+          @show i, j
+        end
+      end
+      println("Done returning Hessian values")
     end
   end
-  # n = 4
-  # x_L = [1.0, 1.0, 1.0, 1.0]
-  # x_U = [5.0, 5.0, 5.0, 5.0]
-  x_L = [-2.0e19 for i in 1:n]
-  x_U = [ 2.0e19 for i in 1:n]
+  x_L = Vector{Float64}(undef,n)
+  x_U = Vector{Float64}(undef,n)
+  for (i,g) in enumerate(opfdata.generators)
+    x_L[i] = g.Pmin
+    x_U[i] = g.Pmax
+    x_L[nPg+i] = g.Qmin
+    x_U[nPg+i] = g.Qmax
+  end
+  for (i,b) in enumerate(opfdata.buses)
+    x_L[nPg + nQg + i] = b.Vmin
+    x_U[nPg + nQg + i] = b.Vmax
+    x_L[nPg + nQg + nVa + i] = -2.0e19
+    x_U[nPg + nQg + nVa + i] = 2.0e19
+  end
 
   g_L = Vector{Float64}(undef, m)
   g_U = Vector{Float64}(undef, m)
@@ -147,7 +224,7 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case)
   for i in 2*nbus+1:m g_L[i] = -2.0e19 end
   for i in 2*nbus+1:m g_U[i] = 0.0 end
 
-  prob = createProblem(n, x_L, x_U, m, g_L, g_U, 8, 10,
+  prob = createProblem(n, x_L, x_U, m, g_L, g_U, n*m, n*n,
                       eval_f, eval_g, eval_grad_f, eval_jac_g, eval_h)
   @show Pg0
   @show Qg0
@@ -155,8 +232,8 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case)
   @show Va0
   prob.x[1:nPg] = Pg0[:] 
   prob.x[nPg+1:nPg+nQg] = Qg0[:]
-  prob.x[nPg+nQg+1:nPg+nQg+nVm] = Vm0[:] 
-  prob.x[nPg+nQg+nVm+1:end] = Va0[:]
+  prob.x[nPg+nQg+1:nPg+nQg+nVa] = Va0[:] 
+  prob.x[nPg+nQg+nVa+1:end] = Vm0[:]
 
   @show prob.x
   @show eval_f(prob.x)
@@ -164,6 +241,11 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case)
   g = zeros(Float64, 2*nbus+2*nline)
   eval_g(prob.x, g)
   @show g
+
+  @show g_L
+  @show g_U
+  @show x_L
+  @show x_U
   
   # # This tests callbacks.
   # function intermediate(alg_mod::Int, iter_count::Int,
@@ -175,7 +257,7 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case)
 
   # setIntermediateCallback(prob, intermediate)
 
-  # solvestat = solveProblem(prob)
+  solvestat = solveProblem(prob)
 
   # @test Ipopt.ApplicationReturnStatus[solvestat] == :User_Requested_Stop
 
