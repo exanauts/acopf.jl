@@ -259,10 +259,11 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
   fromconnect = maximum(size.(cuFromLines,1))
   # @show YftI
   # @show cuYftI
-  viewVmToFromLines   = CuArray{Difftype, 2, Nothing}(zeros(Difftype, fromconnect, nbus))
-  viewcuYftRFromLines = CuArray{Difftype, 2, Nothing}(zeros(Difftype, fromconnect, nbus))
-  viewVaToFromLines   = CuArray{Difftype, 2, Nothing}(zeros(Difftype, fromconnect, nbus))
-  viewcuYftIFromLines = CuArray{Difftype, 2, Nothing}(zeros(Difftype, fromconnect, nbus))
+
+  viewVmToFromLines   = CuArray{T.parameters[1], 2, Nothing}(zeros(T.parameters[1], fromconnect, nbus))
+  viewcuYftRFromLines = CuArray{T.parameters[1], 2, Nothing}(zeros(T.parameters[1], fromconnect, nbus))
+  viewVaToFromLines   = CuArray{T.parameters[1], 2, Nothing}(zeros(T.parameters[1], fromconnect, nbus))
+  viewcuYftIFromLines = CuArray{T.parameters[1], 2, Nothing}(zeros(T.parameters[1], fromconnect, nbus))
   map = Array{CuArray{Int64, 1, Nothing},1}(undef, nbus)
   
   function filltopo(to, from, ranges, nbus)
@@ -285,10 +286,10 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
   filltopo(viewcuYftIFromLines, cuYftI, cuFromLines, nbus)
 
   toconnect = maximum(size.(cuToLines,1))
-  viewVmFromToLines = CuArray{Difftype, 2, Nothing}(zeros(Difftype, toconnect, nbus)) 
-  viewcuYtfRToLines = CuArray{Difftype, 2, Nothing}(zeros(Difftype, toconnect, nbus))
-  viewVaFromToLines = CuArray{Difftype, 2, Nothing}(zeros(Difftype, toconnect, nbus))
-  viewcuYtfIToLines = CuArray{Difftype, 2, Nothing}(zeros(Difftype, toconnect, nbus))
+  viewVmFromToLines = CuArray{T.parameters[1], 2, Nothing}(zeros(T.parameters[1], toconnect, nbus)) 
+  viewcuYtfRToLines = CuArray{T.parameters[1], 2, Nothing}(zeros(T.parameters[1], toconnect, nbus))
+  viewVaFromToLines = CuArray{T.parameters[1], 2, Nothing}(zeros(T.parameters[1], toconnect, nbus))
+  viewcuYtfIToLines = CuArray{T.parameters[1], 2, Nothing}(zeros(T.parameters[1], toconnect, nbus))
   for b in 1:nbus map[b] = mapbus2linefrom[cuToLines[b]] end
   filltopo(viewVmFromToLines, cuVm, map, nbus)
   filltopo(viewcuYtfRToLines, cuYtfR, cuToLines, nbus)

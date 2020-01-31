@@ -44,7 +44,7 @@ IpoptTest.test(Pg0, Qg0, Vm0, Va0, 3, 3, timeroutput, case)
 # println("Objective Hessian: ", [i.values for i in ForwardDiff.partials.(ForwardDiff.partials.(t2sPg).values)])
 # println("Constraint Hessian: ", ForwardDiff.partials.(t2srbalconst))
 show(timeroutput)
-return nothing
+return
 end
 
 main()
