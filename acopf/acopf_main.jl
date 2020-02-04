@@ -15,12 +15,13 @@ case="acopf/data/case9"
 # case="acopf/data/case30"
 
 function main()
-
+max_iter=20
+println("IPOPT JUMP")
 @timeit timeroutput "load" begin
   opfdata = acopf.opf_loaddata(case)
 end
 @timeit timeroutput "model" begin
-  opfmodel, Pg, Qg, Va, Vm = acopf.model(opfdata)
+  opfmodel, Pg, Qg, Va, Vm = acopf.model(opfdata; max_iter = max_iter)
 end
 # @timeit timeroutput "model ad" begin
 #   fobjective, fbalance = acopf_model_ad(opfdata)
@@ -33,10 +34,11 @@ if status==MOI.LOCALLY_SOLVED
   acopf.outputAll(opfmodel,opfdata, Pg, Qg, Va, Vm)
 end
 @show size(Pg,1)
-Pg0 = value.(Pg) ; Qg0 = value.(Qg) ; Vm0 = value.(Vm) ; Va0 = value.(Va)
-# Pg0, Qg0, Vm0, Va0 = acopf.initialPt_IPOPT(opfdata)
-t1sPg, t2sPg = acopf.benchmark(Pg0, Qg0, Vm0, Va0, 3, 3, 0, timeroutput, opfdata)
-IpoptTest.test(Pg0, Qg0, Vm0, Va0, 3, 3, timeroutput, case)
+# Pg0 = value.(Pg) ; Qg0 = value.(Qg) ; Vm0 = value.(Vm) ; Va0 = value.(Va)
+Pg0, Qg0, Vm0, Va0 = acopf.initialPt_IPOPT(opfdata)
+# t1sPg, t2sPg = acopf.benchmark(Pg0, Qg0, Vm0, Va0, 3, 3, 0, timeroutput, opfdata)
+println("IPOPT TEST")
+IpoptTest.test(Pg0, Qg0, Vm0, Va0, 3, 3, timeroutput, case; max_iter = max_iter)
 # t1sPg, t1sPg = acopf.benchmark(opfdata, Pg, Qg, Vm, Va, size(Pg,1), size(Pg,1), 100, timeroutput)
 # t1sPg, t1sPg = acopf.benchmark(opfdata, Pg, Qg, Vm, Va, 10, 10, 100, timeroutput)
 # println("Objective: ", ForwardDiff.value.(t1sPg))

@@ -33,7 +33,7 @@ function solve(opfmodel, opf_data)
   return opfmodel,status
 end
 
-function model(opf_data)
+function model(opf_data; max_iter=100)
   #shortcuts for compactness
   lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
@@ -46,13 +46,13 @@ function model(opf_data)
   #
   # JuMP model now
   #
-  opfmodel = Model(with_optimizer(Ipopt.Optimizer))
+  opfmodel = Model(with_optimizer(Ipopt.Optimizer, max_iter = max_iter))
 
   @variable(opfmodel, generators[i].Pmin <= Pg[i=1:ngen] <= generators[i].Pmax)
   @variable(opfmodel, generators[i].Qmin <= Qg[i=1:ngen] <= generators[i].Qmax)
 
-  @variable(opfmodel, buses[i].Vmin <= Vm[i=1:nbus] <= buses[i].Vmax)
   @variable(opfmodel, Va[1:nbus])
+  @variable(opfmodel, buses[i].Vmin <= Vm[i=1:nbus] <= buses[i].Vmax)
   #fix the voltage angle at the reference bus
   set_lower_bound(Va[opf_data.bus_ref], buses[opf_data.bus_ref].Va)
   set_upper_bound(Va[opf_data.bus_ref], buses[opf_data.bus_ref].Va)
@@ -81,54 +81,54 @@ function model(opf_data)
   
   for b in 1:nbus
     #real part
-    @NLconstraint(
-      opfmodel, 
-      ( sum( YffR[l] for l in FromLines[b]) + sum( YttR[l] for l in ToLines[b]) + YshR[b] ) * Vm[b]^2 
-      + sum( Vm[b]*Vm[busIdx[lines[l].to]]  *( YftR[l]*cos(Va[b]-Va[busIdx[lines[l].to]]  ) + YftI[l]*sin(Va[b]-Va[busIdx[lines[l].to]]  )) for l in FromLines[b] )  
-      + sum( Vm[b]*Vm[busIdx[lines[l].from]]*( YtfR[l]*cos(Va[b]-Va[busIdx[lines[l].from]]) + YtfI[l]*sin(Va[b]-Va[busIdx[lines[l].from]])) for l in ToLines[b]   ) 
-      - ( sum(baseMVA*Pg[g] for g in BusGeners[b]) - buses[b].Pd ) / baseMVA      # Sbus part
-      ==0)
-    #imaginary part
-    @NLconstraint(
-      opfmodel,
-      ( sum(-YffI[l] for l in FromLines[b]) + sum(-YttI[l] for l in ToLines[b]) - YshI[b] ) * Vm[b]^2 
-      + sum( Vm[b]*Vm[busIdx[lines[l].to]]  *(-YftI[l]*cos(Va[b]-Va[busIdx[lines[l].to]]  ) + YftR[l]*sin(Va[b]-Va[busIdx[lines[l].to]]  )) for l in FromLines[b] )
-      + sum( Vm[b]*Vm[busIdx[lines[l].from]]*(-YtfI[l]*cos(Va[b]-Va[busIdx[lines[l].from]]) + YtfR[l]*sin(Va[b]-Va[busIdx[lines[l].from]])) for l in ToLines[b]   )
-      - ( sum(baseMVA*Qg[g] for g in BusGeners[b]) - buses[b].Qd ) / baseMVA      #Sbus part
-      ==0)
+    # @NLconstraint(
+      # opfmodel, 
+      # ( sum( YffR[l] for l in FromLines[b]) + sum( YttR[l] for l in ToLines[b]) + YshR[b] ) * Vm[b]^2 
+      # + sum( Vm[b]*Vm[busIdx[lines[l].to]]  *( YftR[l]*cos(Va[b]-Va[busIdx[lines[l].to]]  ) + YftI[l]*sin(Va[b]-Va[busIdx[lines[l].to]]  )) for l in FromLines[b] )  
+      # + sum( Vm[b]*Vm[busIdx[lines[l].from]]*( YtfR[l]*cos(Va[b]-Va[busIdx[lines[l].from]]) + YtfI[l]*sin(Va[b]-Va[busIdx[lines[l].from]])) for l in ToLines[b]   ) 
+      # - ( sum(baseMVA*Pg[g] for g in BusGeners[b]) - buses[b].Pd ) / baseMVA      # Sbus part
+      # ==0)
+    # #imaginary part
+    # @NLconstraint(
+    #   opfmodel,
+    #   ( sum(-YffI[l] for l in FromLines[b]) + sum(-YttI[l] for l in ToLines[b]) - YshI[b] ) * Vm[b]^2 
+    #   + sum( Vm[b]*Vm[busIdx[lines[l].to]]  *(-YftI[l]*cos(Va[b]-Va[busIdx[lines[l].to]]  ) + YftR[l]*sin(Va[b]-Va[busIdx[lines[l].to]]  )) for l in FromLines[b] )
+    #   + sum( Vm[b]*Vm[busIdx[lines[l].from]]*(-YtfI[l]*cos(Va[b]-Va[busIdx[lines[l].from]]) + YtfR[l]*sin(Va[b]-Va[busIdx[lines[l].from]])) for l in ToLines[b]   )
+    #   - ( sum(baseMVA*Qg[g] for g in BusGeners[b]) - buses[b].Qd ) / baseMVA      #Sbus part
+    #   ==0)
   end
   #
   # branch/lines flow limits
   #
   nlinelim=0
-  for l in 1:nline
-    if lines[l].rateA!=0 && lines[l].rateA<1.0e10
-      nlinelim += 1
-      flowmax=(lines[l].rateA/baseMVA)^2
+  # for l in 1:nline
+  #   if lines[l].rateA!=0 && lines[l].rateA<1.0e10
+  #     nlinelim += 1
+  #     flowmax=(lines[l].rateA/baseMVA)^2
 
-      #branch apparent power limits (from bus)
-      Yff_abs2=YffR[l]^2+YffI[l]^2; Yft_abs2=YftR[l]^2+YftI[l]^2
-      Yre=YffR[l]*YftR[l]+YffI[l]*YftI[l]; Yim=-YffR[l]*YftI[l]+YffI[l]*YftR[l]
-      @NLconstraint(
-        opfmodel,
-	Vm[busIdx[lines[l].from]]^2 *
-	( Yff_abs2*Vm[busIdx[lines[l].from]]^2 + Yft_abs2*Vm[busIdx[lines[l].to]]^2 
-	  + 2*Vm[busIdx[lines[l].from]]*Vm[busIdx[lines[l].to]]*(Yre*cos(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])-Yim*sin(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])) 
-	) 
-        - flowmax <=0)
+  #     #branch apparent power limits (from bus)
+  #     Yff_abs2=YffR[l]^2+YffI[l]^2; Yft_abs2=YftR[l]^2+YftI[l]^2
+  #     Yre=YffR[l]*YftR[l]+YffI[l]*YftI[l]; Yim=-YffR[l]*YftI[l]+YffI[l]*YftR[l]
+  #     @NLconstraint(
+  #       opfmodel,
+	# Vm[busIdx[lines[l].from]]^2 *
+	# ( Yff_abs2*Vm[busIdx[lines[l].from]]^2 + Yft_abs2*Vm[busIdx[lines[l].to]]^2 
+	#   + 2*Vm[busIdx[lines[l].from]]*Vm[busIdx[lines[l].to]]*(Yre*cos(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])-Yim*sin(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])) 
+	# ) 
+  #       - flowmax <=0)
 
-      #branch apparent power limits (to bus)
-      Ytf_abs2=YtfR[l]^2+YtfI[l]^2; Ytt_abs2=YttR[l]^2+YttI[l]^2
-      Yre=YtfR[l]*YttR[l]+YtfI[l]*YttI[l]; Yim=-YtfR[l]*YttI[l]+YtfI[l]*YttR[l]
-      @NLconstraint(
-        opfmodel,
-	Vm[busIdx[lines[l].to]]^2 *
-        ( Ytf_abs2*Vm[busIdx[lines[l].from]]^2 + Ytt_abs2*Vm[busIdx[lines[l].to]]^2
-          + 2*Vm[busIdx[lines[l].from]]*Vm[busIdx[lines[l].to]]*(Yre*cos(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])-Yim*sin(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]]))
-        )
-        - flowmax <=0)
-    end
-  end
+  #     #branch apparent power limits (to bus)
+  #     Ytf_abs2=YtfR[l]^2+YtfI[l]^2; Ytt_abs2=YttR[l]^2+YttI[l]^2
+  #     Yre=YtfR[l]*YttR[l]+YtfI[l]*YttI[l]; Yim=-YtfR[l]*YttI[l]+YtfI[l]*YttR[l]
+  #     @NLconstraint(
+  #       opfmodel,
+	# Vm[busIdx[lines[l].to]]^2 *
+  #       ( Ytf_abs2*Vm[busIdx[lines[l].from]]^2 + Ytt_abs2*Vm[busIdx[lines[l].to]]^2
+  #         + 2*Vm[busIdx[lines[l].from]]*Vm[busIdx[lines[l].to]]*(Yre*cos(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])-Yim*sin(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]]))
+  #       )
+  #       - flowmax <=0)
+  #   end
+  # end
   
   @printf("Buses: %d  Lines: %d  Generators: %d\n", nbus, nline, ngen)
   println("Lines with limits  ", nlinelim)
@@ -415,38 +415,41 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
   @timeit timeroutput "balance constraints" begin
   rbalconst .= (
                (arrays.viewYffR .+ arrays.viewYttR .+ arrays.cuYshR) .* arrays.cuVm.^2 
-               .+ arrays.viewToR    # gpu term 1 
-               .+ arrays.viewFromR  # gpu term 2
+              #  .+ arrays.viewToR    # gpu term 1 
+              #  .+ arrays.viewFromR  # gpu term 2
                .- (((arrays.viewPg .* baseMVA) .- arrays.cuPd) ./ baseMVA) 
                )
+    ibalconst .= 0.0
 
-  ibalconst .= (
-               (arrays.viewYffI .+ arrays.viewYttI .- arrays.cuYshI) .* arrays.cuVm.^2 
-               .+ arrays.viewToI    # gpu term 3
-               .+ arrays.viewFromI  # gpu term 4
-               .- (((arrays.viewQg .* baseMVA) .- arrays.cuQd) ./ baseMVA) 
-               )
+  # ibalconst .= (
+  #              (arrays.viewYffI .+ arrays.viewYttI .- arrays.cuYshI) .* arrays.cuVm.^2 
+  #              .+ arrays.viewToI    # gpu term 3
+  #              .+ arrays.viewFromI  # gpu term 4
+  #              .- (((arrays.viewQg .* baseMVA) .- arrays.cuQd) ./ baseMVA) 
+  #              )
   end
 
   # branch apparent power limits (from bus)
   @timeit timeroutput "line constraints" begin
-  limitsto .= (
-              (arrays.viewVmFrom.^2 
-              .* (arrays.Yff_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Yft_abs2 .* arrays.viewVmTo.^2
-              .+ 2.0 .* arrays.viewVmFrom .* arrays.viewVmTo 
-              .* (arrays.Yrefrom .* CUDAnative.cos.(arrays.viewVaFrom .- arrays.viewVaTo) 
-                  .- arrays.Yimfrom .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
-              .- arrays.cuflowmax)
-              )
+  limitsto .= 0.0
+  # limitsto .= (
+  #             (arrays.viewVmFrom.^2 
+  #             .* (arrays.Yff_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Yft_abs2 .* arrays.viewVmTo.^2
+  #             .+ 2.0 .* arrays.viewVmFrom .* arrays.viewVmTo 
+  #             .* (arrays.Yrefrom .* CUDAnative.cos.(arrays.viewVaFrom .- arrays.viewVaTo) 
+  #                 .- arrays.Yimfrom .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
+  #             .- arrays.cuflowmax)
+  #             )
   # branch apparent power limits (to bus)
-  limitsfrom .= ( 
-                (arrays.viewVmTo.^2 
-                .* (arrays.Ytf_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Ytt_abs2 .* arrays.viewVmTo.^2
-                .+ 2.0 .* arrays.viewVmFrom .* arrays.viewVmTo 
-                .* (arrays.Yreto .* CUDAnative.cos.(arrays.viewVaFrom - arrays.viewVaTo) 
-                    .- arrays.Yimto .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
-                .- arrays.cuflowmax)
-                )
+  limitsfrom .= 0.0
+  # limitsfrom .= ( 
+  #               (arrays.viewVmTo.^2 
+  #               .* (arrays.Ytf_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Ytt_abs2 .* arrays.viewVmTo.^2
+  #               .+ 2.0 .* arrays.viewVmFrom .* arrays.viewVmTo 
+  #               .* (arrays.Yreto .* CUDAnative.cos.(arrays.viewVaFrom - arrays.viewVaTo) 
+  #                   .- arrays.Yimto .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
+  #               .- arrays.cuflowmax)
+  #               )
   end
   return
 end
