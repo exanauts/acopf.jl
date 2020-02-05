@@ -103,34 +103,34 @@ function model(opf_data; max_iter=100)
   # branch/lines flow limits
   #
   nlinelim=0
-  # for l in 1:nline
-  #   if lines[l].rateA!=0 && lines[l].rateA<1.0e10
-  #     nlinelim += 1
-  #     flowmax=(lines[l].rateA/baseMVA)^2
+  for l in 1:nline
+    if lines[l].rateA!=0 && lines[l].rateA<1.0e10
+      nlinelim += 1
+      flowmax=(lines[l].rateA/baseMVA)^2
 
-  #     #branch apparent power limits (from bus)
-  #     Yff_abs2=YffR[l]^2+YffI[l]^2; Yft_abs2=YftR[l]^2+YftI[l]^2
-  #     Yre=YffR[l]*YftR[l]+YffI[l]*YftI[l]; Yim=-YffR[l]*YftI[l]+YffI[l]*YftR[l]
-  #     @NLconstraint(
-  #       opfmodel,
-	# Vm[busIdx[lines[l].from]]^2 *
-	# ( Yff_abs2*Vm[busIdx[lines[l].from]]^2 + Yft_abs2*Vm[busIdx[lines[l].to]]^2 
-	#   + 2*Vm[busIdx[lines[l].from]]*Vm[busIdx[lines[l].to]]*(Yre*cos(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])-Yim*sin(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])) 
-	# ) 
-  #       - flowmax <=0)
+      #branch apparent power limits (from bus)
+      Yff_abs2=YffR[l]^2+YffI[l]^2; Yft_abs2=YftR[l]^2+YftI[l]^2
+      Yre=YffR[l]*YftR[l]+YffI[l]*YftI[l]; Yim=-YffR[l]*YftI[l]+YffI[l]*YftR[l]
+      @NLconstraint(
+        opfmodel,
+	Vm[busIdx[lines[l].from]]^2 *
+	( Yff_abs2*Vm[busIdx[lines[l].from]]^2 + Yft_abs2*Vm[busIdx[lines[l].to]]^2 
+	  + 2*Vm[busIdx[lines[l].from]]*Vm[busIdx[lines[l].to]]*(Yre*cos(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])-Yim*sin(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])) 
+	) 
+        - flowmax <=0)
 
-  #     #branch apparent power limits (to bus)
-  #     Ytf_abs2=YtfR[l]^2+YtfI[l]^2; Ytt_abs2=YttR[l]^2+YttI[l]^2
-  #     Yre=YtfR[l]*YttR[l]+YtfI[l]*YttI[l]; Yim=-YtfR[l]*YttI[l]+YtfI[l]*YttR[l]
-  #     @NLconstraint(
-  #       opfmodel,
-	# Vm[busIdx[lines[l].to]]^2 *
-  #       ( Ytf_abs2*Vm[busIdx[lines[l].from]]^2 + Ytt_abs2*Vm[busIdx[lines[l].to]]^2
-  #         + 2*Vm[busIdx[lines[l].from]]*Vm[busIdx[lines[l].to]]*(Yre*cos(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])-Yim*sin(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]]))
-  #       )
-  #       - flowmax <=0)
-  #   end
-  # end
+      #branch apparent power limits (to bus)
+      Ytf_abs2=YtfR[l]^2+YtfI[l]^2; Ytt_abs2=YttR[l]^2+YttI[l]^2
+      Yre=YtfR[l]*YttR[l]+YtfI[l]*YttI[l]; Yim=-YtfR[l]*YttI[l]+YtfI[l]*YttR[l]
+      @NLconstraint(
+        opfmodel,
+	Vm[busIdx[lines[l].to]]^2 *
+        ( Ytf_abs2*Vm[busIdx[lines[l].from]]^2 + Ytt_abs2*Vm[busIdx[lines[l].to]]^2
+          + 2*Vm[busIdx[lines[l].from]]*Vm[busIdx[lines[l].to]]*(Yre*cos(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])-Yim*sin(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]]))
+        )
+        - flowmax <=0)
+    end
+  end
   
   @printf("Buses: %d  Lines: %d  Generators: %d\n", nbus, nline, ngen)
   println("Lines with limits  ", nlinelim)
@@ -263,8 +263,6 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
   Yrefrom .= cuYffR .* cuYftR .+ cuYffI .* cuYftI; Yimfrom .= .- cuYffR .* cuYftI .+ cuYffI .* cuYftR
   Yreto   .= cuYtfR .* cuYttR .+ cuYtfI .* cuYttI; Yimto   .= .- cuYtfR .* cuYttI .+ cuYtfI .* cuYttR
   fromconnect = maximum(size.(cuFromLines,1))
-  # @show YftI
-  # @show cuYftI
 
   viewVmToFromLines   = CuArray{T.parameters[1], 2, Nothing}(zeros(T.parameters[1], fromconnect, nbus))
   viewcuYftRFromLines = CuArray{T.parameters[1], 2, Nothing}(zeros(T.parameters[1], fromconnect, nbus))
@@ -273,21 +271,15 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
   map = Array{CuArray{Int64, 1, Nothing},1}(undef, nbus)
   
   function filltopo(to, from, ranges, nbus)
-    # @show range
     for b in 1:nbus
       for (j,i) in enumerate(ranges[b])
-        # @show i,j
         to[j,b] = from[i] 
       end
     end
   end
-  # @show typeof(cuFromLines)
   for b in 1:nbus map[b] = mapbus2lineto[cuFromLines[b]] end
   filltopo(viewVmToFromLines, cuVm, map, nbus)
-  # @show YftR
-  # @show cuFromLines
   filltopo(viewcuYftRFromLines, cuYftR, cuFromLines, nbus)
-  # @show viewcuYftRFromLines
   filltopo(viewVaToFromLines, cuVa, map, nbus)
   filltopo(viewcuYftIFromLines, cuYftI, cuFromLines, nbus)
 
@@ -301,7 +293,6 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
   filltopo(viewcuYtfRToLines, cuYtfR, cuToLines, nbus)
   filltopo(viewVaFromToLines, cuVa, map, nbus) 
   filltopo(viewcuYtfIToLines, cuYtfI, cuToLines, nbus)
-  # @show viewcuYftIFromLines
 
   return CompArrays(cuPg, cuQg, cuVa, cuVm, baseMVA, nbus, nline, ngen, 
                     coeff0, coeff1, coeff2, # balance constraints
@@ -409,7 +400,6 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
    
   end
   end
-  # @show arrays.viewToR
   @timeit timeroutput "balance constraints" begin
   rbalconst .= (
                (arrays.viewYffR .+ arrays.viewYttR .+ arrays.cuYshR) .* arrays.cuVm.^2 
@@ -428,25 +418,23 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
 
   # branch apparent power limits (from bus)
   @timeit timeroutput "line constraints" begin
-  limitsto .= 0.0
-  # limitsto .= (
-  #             (arrays.viewVmFrom.^2 
-  #             .* (arrays.Yff_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Yft_abs2 .* arrays.viewVmTo.^2
-  #             .+ 2.0 .* arrays.viewVmFrom .* arrays.viewVmTo 
-  #             .* (arrays.Yrefrom .* CUDAnative.cos.(arrays.viewVaFrom .- arrays.viewVaTo) 
-  #                 .- arrays.Yimfrom .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
-  #             .- arrays.cuflowmax)
-  #             )
+  limitsto .= (
+              (arrays.viewVmFrom.^2 
+              .* (arrays.Yff_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Yft_abs2 .* arrays.viewVmTo.^2
+              .+ 2.0 .* arrays.viewVmFrom .* arrays.viewVmTo 
+              .* (arrays.Yrefrom .* CUDAnative.cos.(arrays.viewVaFrom .- arrays.viewVaTo) 
+                  .- arrays.Yimfrom .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
+              .- arrays.cuflowmax)
+              )
   # branch apparent power limits (to bus)
-  limitsfrom .= 0.0
-  # limitsfrom .= ( 
-  #               (arrays.viewVmTo.^2 
-  #               .* (arrays.Ytf_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Ytt_abs2 .* arrays.viewVmTo.^2
-  #               .+ 2.0 .* arrays.viewVmFrom .* arrays.viewVmTo 
-  #               .* (arrays.Yreto .* CUDAnative.cos.(arrays.viewVaFrom - arrays.viewVaTo) 
-  #                   .- arrays.Yimto .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
-  #               .- arrays.cuflowmax)
-  #               )
+  limitsfrom .= ( 
+                (arrays.viewVmTo.^2 
+                .* (arrays.Ytf_abs2 .* arrays.viewVmFrom.^2 .+ arrays.Ytt_abs2 .* arrays.viewVmTo.^2
+                .+ 2.0 .* arrays.viewVmFrom .* arrays.viewVmTo 
+                .* (arrays.Yreto .* CUDAnative.cos.(arrays.viewVaFrom - arrays.viewVaTo) 
+                    .- arrays.Yimto .* CUDAnative.sin.(arrays.viewVaFrom .- arrays.viewVaTo)))
+                .- arrays.cuflowmax)
+                )
   end
   return
 end
@@ -598,7 +586,6 @@ function benchmark(Pg, Qg, Vm, Va, npartials, mpartials, loops, timeroutput, opf
   t1scuVa = ForwardDiff.seed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Va,1)), Va)
   t1scuVm = ForwardDiff.seed!(CuArray{t1s{npartials}, 1, Nothing}(undef, size(Vm,1)), Vm)
   end
-  # @show t1scuPg
 
 
   t2sseedvec = Array{t1s{npartials},1}(undef, mpartials)
@@ -612,8 +599,6 @@ function benchmark(Pg, Qg, Vm, Va, npartials, mpartials, loops, timeroutput, opf
   for i in mpartials+1:size(Pg,1)
     t2sseeds[i] = ForwardDiff.Partials{mpartials, t1s{npartials}}(NTuple{mpartials, t1s{npartials}}(t2sseedvec))
   end
-  # @show t2sseeds
-  # @show t2sseedvec
   # t2sseedtup = NTuple{size(Pg,1), ForwardDiff.Partials{size(Pg,1), Float64}}(t1sseeds)
   @timeit timeroutput "t2s seeding" begin
   t2scuPg = acopf.myseed!(CuArray{t2s{mpartials,npartials}, 1, Nothing}(undef, size(Pg,1)), t1scuPg, t2sseeds, timeroutput)

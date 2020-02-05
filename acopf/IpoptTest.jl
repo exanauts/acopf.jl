@@ -25,8 +25,6 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
   nline = length(opfdata.lines)
   ngen = length(opfdata.generators)
   m = 2 * nbus + 2 * nline
-  m = 2*nbus #+ 2 * nline
-  # m = 1
   cuPg = CuArray{Float64,1,Nothing}(zeros(Float64, nPg))
   cuQg = CuArray{Float64,1,Nothing}(zeros(Float64, nQg))
   cuVa = CuArray{Float64,1,Nothing}(zeros(Float64, nVa))
@@ -55,7 +53,6 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
     myprint("fx", x)
     myprint("fy", obj)
     return obj
-    # return x[1] * x[4] * (x[1] + x[2] + x[3]) + x[3]
   end
 
   function eval_g(x::Vector{Float64}, g::Vector{Float64})
@@ -64,17 +61,13 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
     cuVa[:] = x[nPg+nQg+1:nPg+nQg+nVa] 
     cuVm[:] = x[nPg+nQg+nVa+1:end] 
     arrays = acopf.create_arrays(cuPg, cuQg, cuVa, cuVm, opfdata, Float64)
-    # @show x
-    # @show cuVm
     acopf.constraints(curbalconst, cuibalconst, culimitsto, culimitsfrom, opfdata, arrays, timeroutput)
-    # g[1] = curbalconst[1]
     g[1:nbus] = curbalconst[:]
     g[nbus+1:2*nbus] = cuibalconst[:]
-    # g[2*nbus+1:2*nbus+nline] = culimitsto[:]
-    # g[2*nbus+nline+1:end] = culimitsfrom[:]
+    g[2*nbus+1:2*nbus+nline] = culimitsto[:]
+    g[2*nbus+nline+1:end] = culimitsfrom[:]
     myprint("gx", x)
     myprint("g", g)
-    # @show g
   end
 
   function eval_grad_f(x::Vector{Float64}, grad_f::Vector{Float64})
@@ -120,13 +113,11 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
         limitsto  .= 0
         limitsfrom .= 0
         acopf.constraints(rbalconst, ibalconst, limitsto, limitsfrom, opfdata, arrays, timeroutput)
-        y = T(undef, 2*nbus)
-        # y[1] = rbalconst[1] 
-        # y = T(undef, 2*nbus+2*nline)
+        y = T(undef, 2*nbus+2*nline)
         y[1:nbus] = rbalconst[:] 
         y[nbus+1:2*nbus] = ibalconst[:] 
-        # y[2*nbus+1:2*nbus+nline] = limitsto[:] 
-        # y[2*nbus+nline+1:end] = limitsfrom[:] 
+        y[2*nbus+1:2*nbus+nline] = limitsto[:] 
+        y[2*nbus+nline+1:end] = limitsfrom[:] 
         return y
       end
       cux = CuArray{Float64,1,Nothing}(x)
@@ -175,8 +166,6 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
         end
       end
       select = 1
-      # @show values
-      # println("Done obj eval")
       function constraints(x)
         Pg = x[1:nPg]
         Qg = x[nPg+1:nPg+nQg]
@@ -189,49 +178,23 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
         limitsto    = T(undef, nline)
         limitsfrom  = T(undef, nline)
         acopf.constraints(rbalconst, ibalconst, limitsto, limitsfrom, opfdata, arrays, timeroutput)
-        # y = T(undef, 2*nbus+2*nline)
-        # y = T(undef, 1)
-        # y[1] = rbalconst[1] 
-        y = T(undef, 2*nbus)
+        y = T(undef, 2*nbus+2*nline)
         y[1:nbus] = rbalconst[:] 
         y[nbus+1:2*nbus] = ibalconst[:] 
-        # y[2*nbus+1:2*nbus+nline] = limitsto[:] 
-        # y[2*nbus+nline+1:end] = limitsfrom[:] 
-        # return y[select]
+        y[2*nbus+1:2*nbus+nline] = limitsto[:] 
+        y[2*nbus+nline+1:end] = limitsfrom[:] 
         return y
       end
       hess = reshape(ForwardDiff.jacobian(x -> ForwardDiff.jacobian(constraints, x), cux), m, n, n)
-      # @show hess
-      # @show typeof(hess)
-      # @show size(hess)
-      # println("Done con eval")
       for l in 1:m
         k = 1
         for i in 1:n
           for j in 1:i
             values[k] += lambda[l] * hess[l,i,j]
-            if values[k] != 0
-              # @show i,j,l, hess[i,j,l]
-            end
             k += 1
           end
         end
       end
-      # @show k
-      # @show values
-      # @show size(values)
-      # for l in 1:m
-      #   select = l
-      #   chess = cux -> ForwardDiff.hessian(constraints, cux)
-      #   conshess = chess(cux)
-      #   k = 1
-      #   for i in 1:size(x,1)
-      #     for j in 1:size(x,1)
-      #       values[k] += lambda[l] * conshess[i,j]
-      #       k += 1
-      #     end
-      #   end
-      # end
       myprint("h_x", x)
       myprint("h", values)
     end
@@ -256,16 +219,10 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
 
   g_L = Vector{Float64}(undef, m)
   g_U = Vector{Float64}(undef, m)
-  # for i in 1:1 g_L[i] = 0.0 end
-  # for i in 1:1 g_U[i] = 0.0 end
-  # for i in 1:nbus g_L[i] = 0.0 end
-  # for i in 1:nbus g_U[i] = 0.0 end
-  # g_L = Vector{Float64}(undef, m)
-  # g_U = Vector{Float64}(undef, m)
   for i in 1:2*nbus g_L[i] = 0.0 end
   for i in 1:2*nbus g_U[i] = 0.0 end
-  # for i in 2*nbus+1:m g_L[i] = -Inf end
-  # for i in 2*nbus+1:m g_U[i] = 0.0 end
+  for i in 2*nbus+1:m g_L[i] = -Inf end
+  for i in 2*nbus+1:m g_U[i] = 0.0 end
   
   myprint("x_L", x_L)
   myprint("x_U", x_U)
@@ -273,21 +230,14 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
   myprint("g_L", g_L)
   myprint("g_U", g_U)
 
-  @show m, n
   idx = 1
   for row = 1:n
     for col = 1:row
       idx += 1
     end
   end
-  @show idx
   prob = createProblem(n, x_L, x_U, m, g_L, g_U, m*n, idx-1,
                       eval_f, eval_g,eval_grad_f, eval_jac_g, eval_h)
-  # prob.x[1:nPg] = Pg0[:] 
-  # prob.x[nPg+1:nPg+nQg] = Qg0[:]
-  # prob.x[nPg+nQg+1:nPg+nQg+nVa] = Va0[:] 
-  # prob.x[nPg+nQg+nVa+1:end] = Vm0[:]
-  # prob.x = 	[0.10999999, 0.10999999, 0.10999999, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.90199999021, 0.90199999021, 0.90199999021, 0.90199999021, 0.90199999021, 0.90199999021, 0.90199999021, 0.90199999021, 0.90199999021]
   prob.x = 	[0.0 for i in 1:n]
   # # This tests callbacks.
   function intermediate(alg_mod::Int, iter_count::Int,
