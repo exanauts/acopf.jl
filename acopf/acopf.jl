@@ -89,13 +89,15 @@ function model(opf_data; max_iter=100)
       - ( sum(baseMVA*Pg[g] for g in BusGeners[b]) - buses[b].Pd ) / baseMVA      # Sbus part
       ==0)
     # #imaginary part
-    # @NLconstraint(
-    #   opfmodel,
-    #   ( sum(-YffI[l] for l in FromLines[b]) + sum(-YttI[l] for l in ToLines[b]) - YshI[b] ) * Vm[b]^2 
-    #   + sum( Vm[b]*Vm[busIdx[lines[l].to]]  *(-YftI[l]*cos(Va[b]-Va[busIdx[lines[l].to]]  ) + YftR[l]*sin(Va[b]-Va[busIdx[lines[l].to]]  )) for l in FromLines[b] )
-    #   + sum( Vm[b]*Vm[busIdx[lines[l].from]]*(-YtfI[l]*cos(Va[b]-Va[busIdx[lines[l].from]]) + YtfR[l]*sin(Va[b]-Va[busIdx[lines[l].from]])) for l in ToLines[b]   )
-    #   - ( sum(baseMVA*Qg[g] for g in BusGeners[b]) - buses[b].Qd ) / baseMVA      #Sbus part
-    #   ==0)
+  end
+  for b in 1:nbus
+    @NLconstraint(
+      opfmodel,
+      ( sum(-YffI[l] for l in FromLines[b]) + sum(-YttI[l] for l in ToLines[b]) - YshI[b] ) * Vm[b]^2 
+      + sum( Vm[b]*Vm[busIdx[lines[l].to]]  *(-YftI[l]*cos(Va[b]-Va[busIdx[lines[l].to]]  ) + YftR[l]*sin(Va[b]-Va[busIdx[lines[l].to]]  )) for l in FromLines[b] )
+      + sum( Vm[b]*Vm[busIdx[lines[l].from]]*(-YtfI[l]*cos(Va[b]-Va[busIdx[lines[l].from]]) + YtfR[l]*sin(Va[b]-Va[busIdx[lines[l].from]])) for l in ToLines[b]   )
+      - ( sum(baseMVA*Qg[g] for g in BusGeners[b]) - buses[b].Qd ) / baseMVA      #Sbus part
+      ==0)
   end
   #
   # branch/lines flow limits
@@ -415,14 +417,13 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
                .+ arrays.viewFromR  # gpu term 2
                .- (((arrays.viewPg .* baseMVA) .- arrays.cuPd) ./ baseMVA) 
                )
-    ibalconst .= 0.0
 
-  # ibalconst .= (
-  #              (arrays.viewYffI .+ arrays.viewYttI .- arrays.cuYshI) .* arrays.cuVm.^2 
-  #              .+ arrays.viewToI    # gpu term 3
-  #              .+ arrays.viewFromI  # gpu term 4
-  #              .- (((arrays.viewQg .* baseMVA) .- arrays.cuQd) ./ baseMVA) 
-  #              )
+  ibalconst .= (
+               (arrays.viewYffI .+ arrays.viewYttI .- arrays.cuYshI) .* arrays.cuVm.^2 
+               .+ arrays.viewToI    # gpu term 3
+               .+ arrays.viewFromI  # gpu term 4
+               .- (((arrays.viewQg .* baseMVA) .- arrays.cuQd) ./ baseMVA) 
+               )
   end
 
   # branch apparent power limits (from bus)

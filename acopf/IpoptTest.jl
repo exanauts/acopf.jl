@@ -25,7 +25,7 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
   nline = length(opfdata.lines)
   ngen = length(opfdata.generators)
   m = 2 * nbus + 2 * nline
-  m = nbus #+ 2 * nline
+  m = 2*nbus #+ 2 * nline
   # m = 1
   cuPg = CuArray{Float64,1,Nothing}(zeros(Float64, nPg))
   cuQg = CuArray{Float64,1,Nothing}(zeros(Float64, nQg))
@@ -69,7 +69,7 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
     acopf.constraints(curbalconst, cuibalconst, culimitsto, culimitsfrom, opfdata, arrays, timeroutput)
     # g[1] = curbalconst[1]
     g[1:nbus] = curbalconst[:]
-    # g[nbus+1:2*nbus] = cuibalconst[:]
+    g[nbus+1:2*nbus] = cuibalconst[:]
     # g[2*nbus+1:2*nbus+nline] = culimitsto[:]
     # g[2*nbus+nline+1:end] = culimitsfrom[:]
     myprint("gx", x)
@@ -120,11 +120,11 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
         limitsto  .= 0
         limitsfrom .= 0
         acopf.constraints(rbalconst, ibalconst, limitsto, limitsfrom, opfdata, arrays, timeroutput)
-        y = T(undef, nbus)
+        y = T(undef, 2*nbus)
         # y[1] = rbalconst[1] 
         # y = T(undef, 2*nbus+2*nline)
         y[1:nbus] = rbalconst[:] 
-        # y[nbus+1:2*nbus] = ibalconst[:] 
+        y[nbus+1:2*nbus] = ibalconst[:] 
         # y[2*nbus+1:2*nbus+nline] = limitsto[:] 
         # y[2*nbus+nline+1:end] = limitsfrom[:] 
         return y
@@ -192,9 +192,9 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
         # y = T(undef, 2*nbus+2*nline)
         # y = T(undef, 1)
         # y[1] = rbalconst[1] 
-        y = T(undef, nbus)
+        y = T(undef, 2*nbus)
         y[1:nbus] = rbalconst[:] 
-        # y[nbus+1:2*nbus] = ibalconst[:] 
+        y[nbus+1:2*nbus] = ibalconst[:] 
         # y[2*nbus+1:2*nbus+nline] = limitsto[:] 
         # y[2*nbus+nline+1:end] = limitsfrom[:] 
         # return y[select]
@@ -258,12 +258,12 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
   g_U = Vector{Float64}(undef, m)
   # for i in 1:1 g_L[i] = 0.0 end
   # for i in 1:1 g_U[i] = 0.0 end
-  for i in 1:nbus g_L[i] = 0.0 end
-  for i in 1:nbus g_U[i] = 0.0 end
+  # for i in 1:nbus g_L[i] = 0.0 end
+  # for i in 1:nbus g_U[i] = 0.0 end
   # g_L = Vector{Float64}(undef, m)
   # g_U = Vector{Float64}(undef, m)
-  # for i in 1:2*nbus g_L[i] = 0.0 end
-  # for i in 1:2*nbus g_U[i] = 0.0 end
+  for i in 1:2*nbus g_L[i] = 0.0 end
+  for i in 1:2*nbus g_U[i] = 0.0 end
   # for i in 2*nbus+1:m g_L[i] = -Inf end
   # for i in 2*nbus+1:m g_U[i] = 0.0 end
   
