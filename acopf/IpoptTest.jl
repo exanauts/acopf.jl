@@ -26,7 +26,7 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
   ngen = length(opfdata.generators)
   m = 2 * nbus + 2 * nline
   m = nbus #+ 2 * nline
-  m = 1
+  # m = 1
   cuPg = CuArray{Float64,1,Nothing}(zeros(Float64, nPg))
   cuQg = CuArray{Float64,1,Nothing}(zeros(Float64, nQg))
   cuVa = CuArray{Float64,1,Nothing}(zeros(Float64, nVa))
@@ -67,8 +67,8 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
     # @show x
     # @show cuVm
     acopf.constraints(curbalconst, cuibalconst, culimitsto, culimitsfrom, opfdata, arrays, timeroutput)
-    g[1] = curbalconst[1]
-    # g[1:nbus] = curbalconst[:]
+    # g[1] = curbalconst[1]
+    g[1:nbus] = curbalconst[:]
     # g[nbus+1:2*nbus] = cuibalconst[:]
     # g[2*nbus+1:2*nbus+nline] = culimitsto[:]
     # g[2*nbus+nline+1:end] = culimitsfrom[:]
@@ -120,10 +120,10 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
         limitsto  .= 0
         limitsfrom .= 0
         acopf.constraints(rbalconst, ibalconst, limitsto, limitsfrom, opfdata, arrays, timeroutput)
-        y = T(undef, 1)
-        y[1] = rbalconst[1] 
+        y = T(undef, nbus)
+        # y[1] = rbalconst[1] 
         # y = T(undef, 2*nbus+2*nline)
-        # y[1:nbus] = rbalconst[:] 
+        y[1:nbus] = rbalconst[:] 
         # y[nbus+1:2*nbus] = ibalconst[:] 
         # y[2*nbus+1:2*nbus+nline] = limitsto[:] 
         # y[2*nbus+nline+1:end] = limitsfrom[:] 
@@ -190,17 +190,17 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
         limitsfrom  = T(undef, nline)
         acopf.constraints(rbalconst, ibalconst, limitsto, limitsfrom, opfdata, arrays, timeroutput)
         # y = T(undef, 2*nbus+2*nline)
-        y = T(undef, 1)
-        y[1] = rbalconst[1] 
-        # y = T(undef, nbus)
-        # y[1:nbus] = rbalconst[:] 
+        # y = T(undef, 1)
+        # y[1] = rbalconst[1] 
+        y = T(undef, nbus)
+        y[1:nbus] = rbalconst[:] 
         # y[nbus+1:2*nbus] = ibalconst[:] 
         # y[2*nbus+1:2*nbus+nline] = limitsto[:] 
         # y[2*nbus+nline+1:end] = limitsfrom[:] 
         # return y[select]
         return y
       end
-      hess = reshape(ForwardDiff.jacobian(x -> ForwardDiff.jacobian(constraints, x), cux), n, n, m)
+      hess = reshape(ForwardDiff.jacobian(x -> ForwardDiff.jacobian(constraints, x), cux), m, n, n)
       # @show hess
       # @show typeof(hess)
       # @show size(hess)
@@ -209,7 +209,7 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
         k = 1
         for i in 1:n
           for j in 1:i
-            values[k] += lambda[l] * hess[i,j,l]
+            values[k] += lambda[l] * hess[l,i,j]
             if values[k] != 0
               # @show i,j,l, hess[i,j,l]
             end
@@ -256,10 +256,10 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
 
   g_L = Vector{Float64}(undef, m)
   g_U = Vector{Float64}(undef, m)
-  for i in 1:1 g_L[i] = 0.0 end
-  for i in 1:1 g_U[i] = 0.0 end
-  # for i in 1:nbus g_L[i] = 0.0 end
-  # for i in 1:nbus g_U[i] = 0.0 end
+  # for i in 1:1 g_L[i] = 0.0 end
+  # for i in 1:1 g_U[i] = 0.0 end
+  for i in 1:nbus g_L[i] = 0.0 end
+  for i in 1:nbus g_U[i] = 0.0 end
   # g_L = Vector{Float64}(undef, m)
   # g_U = Vector{Float64}(undef, m)
   # for i in 1:2*nbus g_L[i] = 0.0 end

@@ -79,7 +79,7 @@ function model(opf_data; max_iter=100)
   # power flow balance
   #
   
-  for b in 1:1
+  for b in 1:nbus
     #real part
     @NLconstraint(
       opfmodel, 
@@ -348,9 +348,6 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
       viewToR[b] = 0.0
       for c in 1:sizeFromLines[b]
         @inbounds viewToR[b] += cuVm[b] * viewVmToFromLines[c,b] * (viewcuYftRFromLines[c,b] * CUDAnative.cos(cuVa[b] - viewVaToFromLines[c,b]) + viewcuYftIFromLines[c,b] * CUDAnative.sin(cuVa[b] - viewVaToFromLines[c,b])) 
-        # @inbounds viewToR[b] += CUDAnative.sin(cuVa[b] - viewVaToFromLines[c,b]) 
-        # @inbounds viewToR[b] += CUDAnative.sin(cuVa[b]) 
-        # @inbounds viewToR[b] += cuVm[b] * viewVmToFromLines[c,b] * (viewcuYftRFromLines[c,b] * CUDAnative.cos(cuVa[b]) + viewcuYftIFromLines[c,b] * CUDAnative.sin(cuVa[b])) 
       end
     end
     return nothing
@@ -364,9 +361,6 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
       viewFromR[b] = 0.0
       for c in 1:sizeToLines[b]
         @inbounds viewFromR[b] += cuVm[b] * viewVmFromToLines[c,b] * (viewcuYtfRToLines[c,b] * CUDAnative.cos(cuVa[b] - viewVaFromToLines[c,b]) + viewcuYtfIToLines[c,b] * CUDAnative.sin(cuVa[b] - viewVaFromToLines[c,b])) 
-        # @inbounds viewFromR[b] += CUDAnative.sin(cuVa[b] - viewVaFromToLines[c,b]) 
-        # @inbounds viewFromR[b] += CUDAnative.sin(cuVa[b]) 
-        # @inbounds viewFromR[b] += cuVm[b] * viewVmFromToLines[c,b] * (viewcuYtfRToLines[c,b] * CUDAnative.cos(cuVa[b]) + viewcuYtfIToLines[c,b] * CUDAnative.sin(cuVa[b])) 
       end
     end
     return nothing
@@ -398,15 +392,6 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
     end
     return nothing
   end
-  # @show arrays.viewVmToFromLines
-  # @show arrays.viewVmFromToLines
-  # @show size(arrays.viewToI)
-  # @show size(arrays.viewVmToFromLines)
-  # @show size(arrays.viewcuYftIFromLines)
-  # @show typeof(arrays.viewToI)
-  # @show typeof(arrays.viewVmToFromLines)
-  # @show typeof(arrays.viewcuYftIFromLines)
-  # @show typeof(arrays.cuVm)
   CuArrays.@sync begin
   @cuda threads=1 blocks=1 gpu_term1(arrays.viewToR, arrays.cuVm, arrays.viewVmToFromLines, arrays.viewcuYftRFromLines, 
                                     arrays.cuVa, arrays.viewVaToFromLines, arrays.viewcuYftIFromLines, arrays.sizeFromLines) 
