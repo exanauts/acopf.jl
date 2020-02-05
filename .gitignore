@@ -1,1 +1,4 @@
 acopf/data
+*.swp
+*.out
+*.log
