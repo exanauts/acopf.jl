@@ -13,9 +13,10 @@ import .IpoptTest
 # case="acopf/data/case1354pegase"
 case="acopf/data/case9"
 # case="acopf/data/case30"
+# case="acopf/data/case118"
 
 function main()
-max_iter=20
+max_iter=100
 println("IPOPT JUMP")
 @timeit timeroutput "load" begin
   opfdata = acopf.opf_loaddata(case)
