@@ -215,13 +215,10 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
 
   # Views
   connect = maximum(size.(cuBusGeners,1))
-
-  dviewPg = Array{T.parameters[1], 2}(zeros(T.parameters[1], connect, nbus))
-  dviewQg = Array{T.parameters[1], 2}(zeros(T.parameters[1], connect, nbus))
   sumQg  = T(undef, nbus)
   sumPg  = T(undef, nbus)
   
-  function fillgen(from::T, ranges, nbus) where T
+  function spfill(from::T, ranges, nbus) where T
     k = 1
     colptr = Vector{Int64}()
     rowval = Vector{Int64}()
@@ -238,8 +235,8 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
     push!(colptr,k)
     return spmat{T.parameters[1]}(colptr, rowval, nzval)
   end
-  viewPg = fillgen(cuPg, cuBusGeners, nbus)
-  viewQg = fillgen(cuQg, cuBusGeners, nbus)
+  viewPg = spfill(cuPg, cuBusGeners, nbus)
+  viewQg = spfill(cuQg, cuBusGeners, nbus)
   sizeBusGeners = CuArray{Int64,1,Nothing}(size.(cuBusGeners,1))
   
   # Real power balance
@@ -312,9 +309,9 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
     end
   end
   for b in 1:nbus map[b] = mapbus2lineto[cuFromLines[b]] end
-  filltopo(viewVmToFromLines, cuVm, map, nbus)
+  viewVmToFromLines = spfill(cuVm, map, nbus)
   filltopo(viewcuYftRFromLines, cuYftR, cuFromLines, nbus)
-  filltopo(viewVaToFromLines, cuVa, map, nbus)
+  viewVaToFromLines = spfill(cuVa, map, nbus)
   filltopo(viewcuYftIFromLines, cuYftI, cuFromLines, nbus)
 
   toconnect = maximum(size.(cuToLines,1))
@@ -323,9 +320,9 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
   viewVaFromToLines = CuArray{T.parameters[1], 2, Nothing}(zeros(T.parameters[1], toconnect, nbus))
   viewcuYtfIToLines = CuArray{T.parameters[1], 2, Nothing}(zeros(T.parameters[1], toconnect, nbus))
   for b in 1:nbus map[b] = mapbus2linefrom[cuToLines[b]] end
-  filltopo(viewVmFromToLines, cuVm, map, nbus)
+  viewVmFromToLines = spfill(cuVm, map, nbus)
   filltopo(viewcuYtfRToLines, cuYtfR, cuToLines, nbus)
-  filltopo(viewVaFromToLines, cuVa, map, nbus) 
+  viewVaFromToLines = spfill(cuVa, map, nbus) 
   filltopo(viewcuYtfIToLines, cuYtfI, cuToLines, nbus)
 
   return CompArrays(cuPg, cuQg, cuVa, cuVm, baseMVA, nbus, nline, ngen, 
@@ -378,49 +375,49 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
 
   @timeit timeroutput "constraints build arrays" begin
 
-  function gpu_term1(viewToR, cuVm, viewVmToFromLines, viewcuYftRFromLines, 
-                              cuVa, viewVaToFromLines, viewcuYftIFromLines, sizeFromLines) 
+  function gpu_term1(viewToR, cuVm, colptrVm, nzvalVm, viewcuYftRFromLines, 
+                              cuVa, colptrVa, nzvalVa, viewcuYftIFromLines, sizeFromLines) 
     index = threadIdx().x    # this example only requires linear indexing, so just use `x`
     stride = blockDim().x
     for b in index:stride:nbus
-      for c in 1:sizeFromLines[b]
-        @inbounds viewToR[b] += cuVm[b] * viewVmToFromLines[c,b] * (viewcuYftRFromLines[c,b] * CUDAnative.cos(cuVa[b] - viewVaToFromLines[c,b]) + viewcuYftIFromLines[c,b] * CUDAnative.sin(cuVa[b] - viewVaToFromLines[c,b])) 
+      for (i,c) in enumerate(colptrVm[b]:colptrVm[b+1]-1)
+        @inbounds viewToR[b] += cuVm[b] * nzvalVm[c] * (viewcuYftRFromLines[i,b] * CUDAnative.cos(cuVa[b] - nzvalVa[c]) + viewcuYftIFromLines[i,b] * CUDAnative.sin(cuVa[b] - nzvalVa[c])) 
       end
     end
     return nothing
   end
 
-  function gpu_term2(viewFromR, cuVm, viewVmFromToLines, viewcuYtfRToLines, 
-                                    cuVa, viewVaFromToLines, viewcuYtfIToLines, sizeToLines) 
+  function gpu_term2(viewFromR, cuVm, colptrVm, nzvalVm, viewcuYtfRToLines, 
+                                cuVa, colptrVa, nzvalVa, viewcuYtfIToLines, sizeToLines) 
     index = threadIdx().x    # this example only requires linear indexing, so just use `x`
     stride = blockDim().x
     for b in index:stride:nbus
-      for c in 1:sizeToLines[b]
-        @inbounds viewFromR[b] += cuVm[b] * viewVmFromToLines[c,b] * (viewcuYtfRToLines[c,b] * CUDAnative.cos(cuVa[b] - viewVaFromToLines[c,b]) + viewcuYtfIToLines[c,b] * CUDAnative.sin(cuVa[b] - viewVaFromToLines[c,b])) 
+      for (i,c) in enumerate(colptrVm[b]:colptrVm[b+1]-1)
+        @inbounds viewFromR[b] += cuVm[b] * nzvalVm[c] * (viewcuYtfRToLines[i,b] * CUDAnative.cos(cuVa[b] - nzvalVa[c]) + viewcuYtfIToLines[i,b] * CUDAnative.sin(cuVa[b] - nzvalVa[c])) 
       end
     end
     return nothing
   end
 
-  function gpu_term3(viewToI, cuVm, viewVmToFromLines, viewcuYftIFromLines, 
-                                  cuVa, viewVaToFromLines, viewcuYftRFromLines, sizeFromLines) 
+  function gpu_term3(viewToI, cuVm, colptrVm, nzvalVm, viewcuYftIFromLines, 
+                              cuVa, colptrVa, nzvalVa, viewcuYftRFromLines, sizeFromLines) 
     index = threadIdx().x    # this example only requires linear indexing, so just use `x`
     stride = blockDim().x
     for b in index:stride:nbus
-      for c in 1:sizeFromLines[b]
-        @inbounds viewToI[b] += cuVm[b] * viewVmToFromLines[c,b] * ((- viewcuYftIFromLines[c,b]) * CUDAnative.cos(cuVa[b] - viewVaToFromLines[c,b]) + viewcuYftRFromLines[c,b] * CUDAnative.sin(cuVa[b] - viewVaToFromLines[c,b])) 
+      for (i,c) in enumerate(colptrVm[b]:colptrVm[b+1]-1)
+        @inbounds viewToI[b] += cuVm[b] * nzvalVm[c] * ((- viewcuYftIFromLines[i,b]) * CUDAnative.cos(cuVa[b] - nzvalVa[c]) + viewcuYftRFromLines[i,b] * CUDAnative.sin(cuVa[b] - nzvalVa[c])) 
       end
     end
     return nothing
   end
 
-  function gpu_term4(viewFromI, cuVm, viewVmFromToLines, viewcuYtfIToLines, 
-                                    cuVa, viewVaFromToLines, viewcuYtfRToLines, sizeToLines) 
+  function gpu_term4(viewFromI, cuVm, colptrVm, nzvalVm, viewcuYtfIToLines, 
+                                cuVa, colptrVa, nzvalVa, viewcuYtfRToLines, sizeToLines) 
     index = threadIdx().x    # this example only requires linear indexing, so just use `x`
     stride = blockDim().x
     for b in index:stride:nbus
-      for c in 1:sizeToLines[b]
-        @inbounds viewFromI[b] += cuVm[b] * viewVmFromToLines[c,b] * ((- viewcuYtfIToLines[c,b]) * CUDAnative.cos(cuVa[b] - viewVaFromToLines[c,b]) + viewcuYtfRToLines[c,b] * CUDAnative.sin(cuVa[b] - viewVaFromToLines[c,b])) 
+      for (i,c) in enumerate(colptrVm[b]:colptrVm[b+1]-1)
+        @inbounds viewFromI[b] += cuVm[b] * nzvalVm[c] * ((- viewcuYtfIToLines[i,b]) * CUDAnative.cos(cuVa[b] - nzvalVa[c]) + viewcuYtfRToLines[i,b] * CUDAnative.sin(cuVa[b] - nzvalVa[c])) 
       end
     end
     return nothing
@@ -455,17 +452,29 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
   @cuda threads=128 blocks=32 gpu_sumPg(arrays.sumPg, arrays.viewPg.colptr, arrays.viewPg.nzval)
   @cuda threads=128 blocks=32 gpu_sumQg(arrays.sumQg, arrays.viewQg.colptr, arrays.viewQg.nzval)
 
-  @cuda threads=128 blocks=32 gpu_term1(arrays.viewToR, arrays.cuVm, arrays.viewVmToFromLines, arrays.viewcuYftRFromLines, 
-                                    arrays.cuVa, arrays.viewVaToFromLines, arrays.viewcuYftIFromLines, arrays.sizeFromLines) 
+  @cuda threads=128 blocks=32 gpu_term1(arrays.viewToR, arrays.cuVm, 
+                                        arrays.viewVmToFromLines.colptr, arrays.viewVmToFromLines.nzval,
+                                        arrays.viewcuYftRFromLines, arrays.cuVa, 
+                                        arrays.viewVaToFromLines.colptr, arrays.viewVaToFromLines.nzval, 
+                                        arrays.viewcuYftIFromLines, arrays.sizeFromLines) 
 
-  @cuda threads=128 blocks=32 gpu_term2(arrays.viewFromR, arrays.cuVm, arrays.viewVmFromToLines, arrays.viewcuYtfRToLines, 
-                                    arrays.cuVa, arrays.viewVaFromToLines, arrays.viewcuYtfIToLines, arrays.sizeToLines) 
+  @cuda threads=128 blocks=32 gpu_term2(arrays.viewFromR, arrays.cuVm, 
+                                        arrays.viewVmFromToLines.colptr, arrays.viewVmFromToLines.nzval,
+                                        arrays.viewcuYtfRToLines, arrays.cuVa, 
+                                        arrays.viewVaFromToLines.colptr, arrays.viewVaFromToLines.nzval,  
+                                        arrays.viewcuYtfIToLines, arrays.sizeToLines) 
 
-  @cuda threads=128 blocks=32 gpu_term3(arrays.viewToI, arrays.cuVm, arrays.viewVmToFromLines, arrays.viewcuYftIFromLines, 
-                                  arrays.cuVa, arrays.viewVaToFromLines, arrays.viewcuYftRFromLines, arrays.sizeFromLines) 
+  @cuda threads=128 blocks=32 gpu_term3(arrays.viewToI, arrays.cuVm, 
+                                        arrays.viewVmToFromLines.colptr, arrays.viewVmToFromLines.nzval,
+                                        arrays.viewcuYftIFromLines, arrays.cuVa, 
+                                        arrays.viewVaToFromLines.colptr, arrays.viewVaToFromLines.nzval, 
+                                        arrays.viewcuYftRFromLines, arrays.sizeFromLines) 
 
-  @cuda threads=128 blocks=32 gpu_term4(arrays.viewFromI, arrays.cuVm, arrays.viewVmFromToLines, arrays.viewcuYtfIToLines, 
-                                    arrays.cuVa, arrays.viewVaFromToLines, arrays.viewcuYtfRToLines, arrays.sizeToLines) 
+  @cuda threads=128 blocks=32 gpu_term4(arrays.viewFromI, arrays.cuVm, 
+                                        arrays.viewVmFromToLines.colptr, arrays.viewVmFromToLines.nzval,
+                                        arrays.viewcuYtfIToLines, arrays.cuVa, 
+                                        arrays.viewVaFromToLines.colptr, arrays.viewVaFromToLines.nzval, 
+                                        arrays.viewcuYtfRToLines, arrays.sizeToLines) 
   end
   end
   @timeit timeroutput "balance constraints" begin
