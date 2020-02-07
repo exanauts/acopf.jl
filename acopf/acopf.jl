@@ -5,14 +5,17 @@ using JuMP
 using Ipopt
 using Printf
 using DelimitedFiles
+# using SparseArrays
 using CuArrays, CUDAnative
 using ForwardDiff
 using TimerOutputs
+# using CuArrays.CUSPARSE
 
 export solve, opf_loaddata, model
 export create_arrays, objective, outputAll, constraints 
 export initialPt_IPOPT
 export myseed!
+# export spmat
 
 function solve(opfmodel, opf_data)
    
@@ -138,6 +141,16 @@ function model(opf_data; max_iter=100)
   return opfmodel, Pg, Qg, Va, Vm
 end
 
+mutable struct spmat{T}
+  colptr::CuVector{Int64}
+  rowval::CuVector{Int64}
+  nzval::CuVector{T}
+
+  function spmat{T}(colptr::Vector{Int64}, rowval::Vector{Int64}, nzval::Vector{T}) where T
+    return new(CuVector{Int64}(colptr), CuVector{Int64}(rowval), CuVector{T}(nzval))
+  end
+end
+
 struct CompArrays
   cuPg ; cuQg ; cuVa ; cuVm
   baseMVA ;nbus ; nline ; ngen
@@ -146,7 +159,7 @@ struct CompArrays
   viewVmTo ; viewVmFrom ; viewVaTo ; viewVaFrom
   viewYffR ; viewYttR ; viewYffI ; viewYttI
   cuYffR ; cuYffI ; cuYttR ; cuYttI ; cuYftR ; cuYftI ; cuYtfR ; cuYtfI ; cuYshR ; cuYshI
-  viewPg ; viewQg
+  viewPg ; viewQg ; sumPg; sumQg; sizeBusGeners
   cuPd ; cuQd
   cuflowmax
   Yff_abs2 ; Yft_abs2 ; Ytf_abs2 ; Ytt_abs2
@@ -159,7 +172,6 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
   #shortcuts for compactness
   lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
-
   nbus  = length(buses); nline = length(lines); ngen  = length(generators)
 
   # Arrays for objective
@@ -202,12 +214,34 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
   sizeToLines = CuArray{Int64,1,Nothing}(size.(cuToLines,1))
 
   # Views
-  viewPg = T(undef, nbus)  
-  for b in 1:nbus viewPg[b] = sum(view(cuPg, cuBusGeners[b])) end
-  viewQg = T(undef, nbus)  
-  for b in 1:nbus viewQg[b] = sum(view(cuQg, cuBusGeners[b])) end
-  
+  connect = maximum(size.(cuBusGeners,1))
 
+  dviewPg = Array{T.parameters[1], 2}(zeros(T.parameters[1], connect, nbus))
+  dviewQg = Array{T.parameters[1], 2}(zeros(T.parameters[1], connect, nbus))
+  sumQg  = T(undef, nbus)
+  sumPg  = T(undef, nbus)
+  
+  function fillgen(from::T, ranges, nbus) where T
+    k = 1
+    colptr = Vector{Int64}()
+    rowval = Vector{Int64}()
+    nzval  = Vector{T.parameters[1]}()
+    for b in 1:nbus
+      push!(colptr,k)
+      for (j,i) in enumerate(ranges[b])
+        # to[j,b] = from[i] 
+        push!(nzval, from[i])
+        push!(rowval, i)
+        k += 1
+      end
+    end
+    push!(colptr,k)
+    return spmat{T.parameters[1]}(colptr, rowval, nzval)
+  end
+  viewPg = fillgen(cuPg, cuBusGeners, nbus)
+  viewQg = fillgen(cuQg, cuBusGeners, nbus)
+  sizeBusGeners = CuArray{Int64,1,Nothing}(size.(cuBusGeners,1))
+  
   # Real power balance
 
   mapbus2lineto = CuArray{Int64,1,Nothing}([busIdx[lines[l].to] for l in 1:nline]) 
@@ -300,7 +334,7 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
                     viewVmTo, viewVmFrom, viewVaTo, viewVaFrom,
                     viewYffR, viewYttR, viewYffI, viewYttI,
                     cuYffR, cuYffI, cuYttR, cuYttI, cuYftR, cuYftI, cuYtfR, cuYtfI, cuYshR, cuYshI,
-                    viewPg, viewQg,
+                    viewPg, viewQg, sumPg, sumQg, sizeBusGeners,
                     cuPd, cuQd,
                     cuflowmax,
                     Yff_abs2, 
@@ -314,6 +348,18 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
                     viewVmToFromLines, viewcuYftRFromLines, viewVaToFromLines, viewcuYftIFromLines,
                     viewVmFromToLines, viewcuYtfRToLines, viewVaFromToLines, viewcuYtfIToLines,
                     sizeFromLines, sizeToLines)
+end
+
+function update_arrays!(arrays, cuPg::T, cuQg::T, cuVa::T, cuVm::T, Difftype) where T
+  arrays.cuPg .= cuPg
+  arrays.cuQg .= cuQg
+  arrays.cuVa .= cuVa
+  arrays.cuVm .= cuVm
+  # Views
+  viewPg = T(undef, nbus)  
+  for b in 1:nbus viewPg[b] = sum(view(cuPg, cuBusGeners[b])) end
+  viewQg = T(undef, nbus)  
+  for b in 1:nbus viewQg[b] = sum(view(cuQg, cuBusGeners[b])) end
 end
 
 function objective(opf_data::OPFData, arrays::CompArrays) where T
@@ -379,11 +425,36 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
     end
     return nothing
   end
+  function gpu_sumPg(sumPg, colptr, nzval)
+    index = threadIdx().x    # this example only requires linear indexing, so just use `x`
+    stride = blockDim().x
+    for b in index:stride:nbus
+      for c in colptr[b]:colptr[b+1]-1
+        @inbounds sumPg[b] += nzval[c]
+      end
+    end
+    return nothing
+  end
+  function gpu_sumQg(sumQg, colptr, nzval)
+    index = threadIdx().x    # this example only requires linear indexing, so just use `x`
+    stride = blockDim().x
+    for b in index:stride:nbus
+      for c in colptr[b]:colptr[b+1]-1
+        @inbounds sumQg[b] += nzval[c]
+      end
+    end
+    return nothing
+  end
+  arrays.sumPg .= 0.0
+  arrays.sumQg .= 0.0 
   arrays.viewToR   .= 0.0
   arrays.viewFromR .= 0.0
   arrays.viewToI   .= 0.0
   arrays.viewFromI .= 0.0
   CuArrays.@sync begin
+  @cuda threads=128 blocks=32 gpu_sumPg(arrays.sumPg, arrays.viewPg.colptr, arrays.viewPg.nzval)
+  @cuda threads=128 blocks=32 gpu_sumQg(arrays.sumQg, arrays.viewQg.colptr, arrays.viewQg.nzval)
+
   @cuda threads=128 blocks=32 gpu_term1(arrays.viewToR, arrays.cuVm, arrays.viewVmToFromLines, arrays.viewcuYftRFromLines, 
                                     arrays.cuVa, arrays.viewVaToFromLines, arrays.viewcuYftIFromLines, arrays.sizeFromLines) 
 
@@ -402,14 +473,14 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
                (arrays.viewYffR .+ arrays.viewYttR .+ arrays.cuYshR) .* arrays.cuVm.^2 
                .+ arrays.viewToR    # gpu term 1 
                .+ arrays.viewFromR  # gpu term 2
-               .- (((arrays.viewPg .* baseMVA) .- arrays.cuPd) ./ baseMVA) 
+               .- (((arrays.sumPg .* baseMVA) .- arrays.cuPd) ./ baseMVA) 
                )
 
   ibalconst .= (
                (arrays.viewYffI .+ arrays.viewYttI .- arrays.cuYshI) .* arrays.cuVm.^2 
                .+ arrays.viewToI    # gpu term 3
                .+ arrays.viewFromI  # gpu term 4
-               .- (((arrays.viewQg .* baseMVA) .- arrays.cuQd) ./ baseMVA) 
+               .- (((arrays.sumQg .* baseMVA) .- arrays.cuQd) ./ baseMVA) 
                )
   end
 
