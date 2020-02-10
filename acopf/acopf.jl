@@ -151,7 +151,7 @@ mutable struct spmat{T}
   end
 end
 
-struct CompArrays
+mutable struct CompArrays
   cuPg ; cuQg ; cuVa ; cuVm
   baseMVA ;nbus ; nline ; ngen
   coeff0 ; coeff1 ; coeff2
@@ -166,9 +166,11 @@ struct CompArrays
   Yrefrom ; Yimfrom ; Yreto ; Yimto
   viewVmToFromLines ; viewcuYftRFromLines ; viewVaToFromLines ; viewcuYftIFromLines ; viewVmFromToLines ; viewcuYtfRToLines ; viewVaFromToLines ; viewcuYtfIToLines
   sizeFromLines ; sizeToLines
+  cuBusGeners; mapfromlines; maptolines
 end
 
-function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Difftype) where T
+function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, timeroutput) where T
+  @timeit timeroutput "create arrays" begin
   #shortcuts for compactness
   lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
@@ -295,22 +297,25 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
   Yreto   .= cuYtfR .* cuYttR .+ cuYtfI .* cuYttI; Yimto   .= .- cuYtfR .* cuYttI .+ cuYtfI .* cuYttR
   fromconnect = maximum(size.(cuFromLines,1))
 
-  map = Array{CuArray{Int64, 1, Nothing},1}(undef, nbus)
+  mapfromlines = Array{CuArray{Int64, 1, Nothing},1}(undef, nbus)
   
-  for b in 1:nbus map[b] = mapbus2lineto[cuFromLines[b]] end
-  viewVmToFromLines   = spfill(cuVm, map, nbus)
+  for b in 1:nbus mapfromlines[b] = mapbus2lineto[cuFromLines[b]] end
+  viewVmToFromLines   = spfill(cuVm, mapfromlines, nbus)
   viewcuYftRFromLines = spfill(cuYftR, cuFromLines, nbus)
-  viewVaToFromLines   = spfill(cuVa, map, nbus)
+  viewVaToFromLines   = spfill(cuVa, mapfromlines, nbus)
   viewcuYftIFromLines = spfill(cuYftI, cuFromLines, nbus)
 
+  maptolines = Array{CuArray{Int64, 1, Nothing},1}(undef, nbus)
+
   toconnect = maximum(size.(cuToLines,1))
-  for b in 1:nbus map[b] = mapbus2linefrom[cuToLines[b]] end
-  viewVmFromToLines = spfill(cuVm, map, nbus)
+  for b in 1:nbus maptolines[b] = mapbus2linefrom[cuToLines[b]] end
+  viewVmFromToLines = spfill(cuVm, maptolines, nbus)
   viewcuYtfRToLines = spfill(cuYtfR, cuToLines, nbus)
-  viewVaFromToLines = spfill(cuVa, map, nbus) 
+  viewVaFromToLines = spfill(cuVa, maptolines, nbus) 
   viewcuYtfIToLines = spfill(cuYtfI, cuToLines, nbus)
 
-  return CompArrays(cuPg, cuQg, cuVa, cuVm, baseMVA, nbus, nline, ngen, 
+  @timeit timeroutput "allocation" begin
+  ret = CompArrays(cuPg, cuQg, cuVa, cuVm, baseMVA, nbus, nline, ngen, 
                     coeff0, coeff1, coeff2, # balance constraints
                     viewToR, viewFromR, viewToI, viewFromI,
                     viewVmTo, viewVmFrom, viewVaTo, viewVaFrom,
@@ -329,36 +334,59 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, Di
                     Yimto,
                     viewVmToFromLines, viewcuYftRFromLines, viewVaToFromLines, viewcuYftIFromLines,
                     viewVmFromToLines, viewcuYtfRToLines, viewVaFromToLines, viewcuYtfIToLines,
-                    sizeFromLines, sizeToLines)
+                    sizeFromLines, sizeToLines,
+                    cuBusGeners, mapfromlines, maptolines)
+  end
+  end
+  return ret
 end
 
-function update_arrays!(arrays, cuPg::T, cuQg::T, cuVa::T, cuVm::T, Difftype) where T
+function update_arrays!(arrays::CompArrays, cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, timeroutput) where T
+  @timeit timeroutput "update arrays" begin
   arrays.cuPg .= cuPg
   arrays.cuQg .= cuQg
   arrays.cuVa .= cuVa
   arrays.cuVm .= cuVm
-  # Views
-  viewPg = T(undef, nbus)  
-  for b in 1:nbus viewPg[b] = sum(view(cuPg, cuBusGeners[b])) end
-  viewQg = T(undef, nbus)  
-  for b in 1:nbus viewQg[b] = sum(view(cuQg, cuBusGeners[b])) end
+
+  function spfill!(to, from::T, ranges, nbus) where T
+    k = 1
+    for b in 1:nbus
+      for (j,i) in enumerate(ranges[b])
+        to.nzval[k] = from[i]
+        k += 1
+      end
+    end
+    return nothing
+  end
+  spfill!(arrays.viewPg, cuPg, arrays.cuBusGeners, arrays.nbus)
+  spfill!(arrays.viewQg, cuQg, arrays.cuBusGeners, arrays.nbus)
+
+  spfill!(arrays.viewVmToFromLines, cuVm, arrays.mapfromlines, arrays.nbus)
+  spfill!(arrays.viewVaToFromLines, cuVa, arrays.mapfromlines, arrays.nbus)
+
+  spfill!(arrays.viewVmFromToLines, cuVm, arrays.maptolines, arrays.nbus)
+  spfill!(arrays.viewVaFromToLines, cuVa, arrays.maptolines, arrays.nbus) 
+  end
 end
 
-function objective(opf_data::OPFData, arrays::CompArrays) where T
+function objective(opf_data::OPFData, arrays::CompArrays, timeroutput) where T
+  @timeit timeroutput "objective" begin
   # minimize active power
   return sum(arrays.coeff2 .* (arrays.baseMVA .* arrays.cuPg).^2 
     .+ arrays.coeff1 .* (arrays.baseMVA .* arrays.cuPg)
     .+ arrays.coeff0)
+  end
 end
 
 function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf_data::OPFData, arrays::CompArrays, timeroutput::TimerOutput) where T
+  @timeit timeroutput "constraints" begin
   lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
 
   nbus  = length(buses); nline = length(lines); ngen  = length(generators)
 
 
-  @timeit timeroutput "constraints build arrays" begin
+  @timeit timeroutput "cuda kernels" begin
 
   function gpu_term1(viewToR, cuVm, colptrVm, nzvalVm, colptrYftR, nzvalYftR,
                               cuVa, colptrVa, nzvalVa, colptrYftI, nzvalYftI,
@@ -510,7 +538,8 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
                 .- arrays.cuflowmax)
                 )
   end
-  return
+  end
+  return nothing
 end
 
 function outputAll(opfmodel, opf_data, Pg, Qg, Va, Vm)
