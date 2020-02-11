@@ -7,19 +7,8 @@ using ForwardDiff
 using CuArrays, CUDAnative
 using TimerOutputs
 
-# hs071
-# min x1 * x4 * (x1 + x2 + x3) + x3
-# st  x1 * x2 * x3 * x4 >= 25
-#     x1^2 + x2^2 + x3^2 + x4^2 = 40
-#     1 <= x1, x2, x3, x4 <= 5
-# Start at (1,5,5,1)
-# End at (1.000..., 4.743..., 3.821..., 1.379...)
-
-
-function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_iter=100)
+function test(Pg0, Qg0, Vm0, Va0, timeroutput, case; max_iter=100)
   opfdata = acopf.opf_loaddata(case)
-  t1s{N} =  ForwardDiff.Dual{Nothing,Float64, N} where N
-  t2s{M,N} =  ForwardDiff.Dual{Nothing,t1s{N}, M} where {N, M}
   nPg = size(Pg0,1) ; nQg = size(Qg0,1) ; nVm = size(Vm0,1) ; nVa = size(Va0,1)
   n = nPg + nQg + nVm + nVa
   nbus = length(opfdata.buses)
@@ -52,7 +41,7 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
     cuVa[:] = x[nPg+nQg+1:nPg+nQg+nVa] 
     cuVm[:] = x[nPg+nQg+nVa+1:end] 
     arrays = acopf.create_arrays(cuPg, cuQg, cuVa, cuVm, opfdata, timeroutput)
-    obj = acopf.objective(opfdata, arrays, timeroutput)
+    obj = acopf.objective(arrays, timeroutput)
     myprint("fx", x)
     myprint("fy", obj)
     end
@@ -66,7 +55,7 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
     cuVa[:] = x[nPg+nQg+1:nPg+nQg+nVa] 
     cuVm[:] = x[nPg+nQg+nVa+1:end] 
     arrays = acopf.create_arrays(cuPg, cuQg, cuVa, cuVm, opfdata, timeroutput)
-    acopf.constraints(curbalconst, cuibalconst, culimitsto, culimitsfrom, opfdata, arrays, timeroutput)
+    acopf.constraints(curbalconst, cuibalconst, culimitsto, culimitsfrom, arrays, timeroutput)
     g[1:nbus] = curbalconst[:]
     g[nbus+1:2*nbus] = cuibalconst[:]
     g[2*nbus+1:2*nbus+nline] = culimitsto[:]
@@ -84,7 +73,7 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
       Va = x[nPg+nQg+1:nPg+nQg+nVa]
       Vm = x[nPg+nQg+nVa+1:end]
       arrays = acopf.create_arrays(Pg, Qg, Va, Vm, opfdata, timeroutput)
-      return acopf.objective(opfdata, arrays, timeroutput)
+      return acopf.objective(arrays, timeroutput)
     end
     cux = CuArray{Float64,1,Nothing}(x)
     g = cux -> ForwardDiff.gradient(objective, cux)
@@ -111,8 +100,8 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
         Qg = x[nPg+1:nPg+nQg]
         Va = x[nPg+nQg+1:nPg+nQg+nVa]
         Vm = x[nPg+nQg+nVa+1:end]
-        acopf.update_arrays!(arrays, Pg, Qg, Va, Vm, opfdata, timeroutput)
-        acopf.constraints(rbalconst, ibalconst, limitsto, limitsfrom, opfdata, arrays, timeroutput)
+        acopf.update_arrays!(arrays, Pg, Qg, Va, Vm, timeroutput)
+        acopf.constraints(rbalconst, ibalconst, limitsto, limitsfrom, arrays, timeroutput)
         y[1:nbus] = rbalconst[:] 
         y[nbus+1:2*nbus] = ibalconst[:] 
         y[2*nbus+1:2*nbus+nline] = limitsto[:] 
@@ -166,7 +155,7 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
         Va = x[nPg+nQg+1:nPg+nQg+nVa]
         Vm = x[nPg+nQg+nVa+1:end]
         arrays = acopf.create_arrays(Pg, Qg, Va, Vm, opfdata, timeroutput)
-        return acopf.objective(opfdata, arrays, timeroutput)
+        return acopf.objective(arrays, timeroutput)
       end
       
       @timeit timeroutput "moving to GPU" begin
@@ -188,16 +177,9 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
         Qg = x[nPg+1:nPg+nQg]
         Va = x[nPg+nQg+1:nPg+nQg+nVa]
         Vm = x[nPg+nQg+nVa+1:end]
-        # arrays = acopf.create_arrays(Pg, Qg, Va, Vm, opfdata)
-        acopf.update_arrays!(arrays, Pg, Qg, Va, Vm, opfdata, timeroutput)
+        acopf.update_arrays!(arrays, Pg, Qg, Va, Vm, timeroutput)
         T = typeof(x)
-        # println("T inside function: ", T)
-        # rbalconst   = T(undef, nbus)
-        # ibalconst   = T(undef, nbus)
-        # limitsto    = T(undef, nline)
-        # limitsfrom  = T(undef, nline)
-        acopf.constraints(rbalconst, ibalconst, limitsto, limitsfrom, opfdata, arrays, timeroutput)
-        # y = T(undef, 2*nbus+2*nline)
+        acopf.constraints(rbalconst, ibalconst, limitsto, limitsfrom, arrays, timeroutput)
         y[1:nbus] = rbalconst[:] 
         y[nbus+1:2*nbus] = ibalconst[:] 
         y[2*nbus+1:2*nbus+nline] = limitsto[:] 
@@ -284,7 +266,8 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
   prob = createProblem(n, x_L, x_U, m, g_L, g_U, m*n, idx-1,
                       eval_f, eval_g,eval_grad_f, eval_jac_g, eval_h)
   prob.x = 	[0.0 for i in 1:n]
-  # # This tests callbacks.
+
+  # Callback
   function intermediate(alg_mod::Int, iter_count::Int,
   obj_value::Float64, inf_pr::Float64, inf_du::Float64, mu::Float64,
   d_norm::Float64, regularization_size::Float64, alpha_du::Float64, alpha_pr::Float64,
@@ -296,7 +279,6 @@ function test(Pg0, Qg0, Vm0, Va0, npartials, mpartials, timeroutput, case; max_i
 
   solvestat = solveProblem(prob)
   close(io)
-  # @test Ipopt.ApplicationReturnStatus[solvestat] == :User_Requested_Stop
   return
 
 end

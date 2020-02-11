@@ -56,7 +56,7 @@ function model(opf_data; max_iter=100)
 
   @variable(opfmodel, Va[1:nbus])
   @variable(opfmodel, buses[i].Vmin <= Vm[i=1:nbus] <= buses[i].Vmax)
-  #fix the voltage angle at the reference bus
+  # fix the voltage angle at the reference bus
   set_lower_bound(Va[opf_data.bus_ref], buses[opf_data.bus_ref].Va)
   set_upper_bound(Va[opf_data.bus_ref], buses[opf_data.bus_ref].Va)
 
@@ -75,15 +75,15 @@ function model(opf_data; max_iter=100)
   end
 
   @NLobjective(opfmodel, Min, sum( coeff2[i]*(baseMVA*Pg[i])^2 
-                                + coeff1[i]*(baseMVA*Pg[i])
-                                + coeff0[i] for i=1:ngen))
+                                 + coeff1[i]*(baseMVA*Pg[i])
+                                 + coeff0[i] for i=1:ngen))
 
   #
   # power flow balance
   #
   
   for b in 1:nbus
-    #real part
+    # real part
     @NLconstraint(
       opfmodel, 
       ( sum( YffR[l] for l in FromLines[b]) + sum( YttR[l] for l in ToLines[b]) + YshR[b] ) * Vm[b]^2 
@@ -91,7 +91,7 @@ function model(opf_data; max_iter=100)
       + sum( Vm[b]*Vm[busIdx[lines[l].from]]*( YtfR[l]*cos(Va[b]-Va[busIdx[lines[l].from]]) + YtfI[l]*sin(Va[b]-Va[busIdx[lines[l].from]])) for l in ToLines[b]   ) 
       - ( sum(baseMVA*Pg[g] for g in BusGeners[b]) - buses[b].Pd ) / baseMVA      # Sbus part
       ==0)
-    # #imaginary part
+    # imaginary part
   end
   for b in 1:nbus
     @NLconstraint(
@@ -112,14 +112,17 @@ function model(opf_data; max_iter=100)
       flowmax=(lines[l].rateA/baseMVA)^2
 
       #branch apparent power limits (from bus)
-      Yff_abs2=YffR[l]^2+YffI[l]^2; Yft_abs2=YftR[l]^2+YftI[l]^2
+      Yff_abs2=YffR[l]^2+YffI[l]^2;        Yft_abs2=YftR[l]^2+YftI[l]^2
       Yre=YffR[l]*YftR[l]+YffI[l]*YftI[l]; Yim=-YffR[l]*YftI[l]+YffI[l]*YftR[l]
       @NLconstraint(
         opfmodel,
-	Vm[busIdx[lines[l].from]]^2 *
-	( Yff_abs2*Vm[busIdx[lines[l].from]]^2 + Yft_abs2*Vm[busIdx[lines[l].to]]^2 
-	  + 2*Vm[busIdx[lines[l].from]]*Vm[busIdx[lines[l].to]]*(Yre*cos(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])-Yim*sin(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])) 
-	) 
+        Vm[busIdx[lines[l].from]]^2 *
+        ( Yff_abs2*Vm[busIdx[lines[l].from]]^2 + Yft_abs2*Vm[busIdx[lines[l].to]]^2 
+          + 2*Vm[busIdx[lines[l].from]]*Vm[busIdx[lines[l].to]]
+             *(Yre*cos(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])
+              -Yim*sin(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])
+              ) 
+	      ) 
         - flowmax <=0)
 
       #branch apparent power limits (to bus)
@@ -127,9 +130,12 @@ function model(opf_data; max_iter=100)
       Yre=YtfR[l]*YttR[l]+YtfI[l]*YttI[l]; Yim=-YtfR[l]*YttI[l]+YtfI[l]*YttR[l]
       @NLconstraint(
         opfmodel,
-	Vm[busIdx[lines[l].to]]^2 *
+        Vm[busIdx[lines[l].to]]^2 *
         ( Ytf_abs2*Vm[busIdx[lines[l].from]]^2 + Ytt_abs2*Vm[busIdx[lines[l].to]]^2
-          + 2*Vm[busIdx[lines[l].from]]*Vm[busIdx[lines[l].to]]*(Yre*cos(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])-Yim*sin(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]]))
+          + 2*Vm[busIdx[lines[l].from]]*Vm[busIdx[lines[l].to]]
+             *(Yre*cos(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])
+              -Yim*sin(Va[busIdx[lines[l].from]]-Va[busIdx[lines[l].to]])
+              )
         )
         - flowmax <=0)
     end
@@ -176,9 +182,9 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, ti
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
   nbus  = length(buses); nline = length(lines); ngen  = length(generators)
 
-  # Arrays for objective
-  #branch admitances
-  YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(lines, buses, baseMVA)
+  ## Arrays for objective
+
+  # Penalty coefficients
   coeff0 = CuArray{Float64,1,Nothing}(undef, ngen)
   for (i,v) in enumerate(generators)
     coeff0[i] = v.coeff[v.n]
@@ -192,9 +198,9 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, ti
     coeff2[i] = v.coeff[v.n - 2]
   end
   
-  # Arrays for constraints
+  ## Arrays for constraints
 
-  # demand arrays
+  # Demand arrays
   cuPd = CuArray{Float64,1,Nothing}(undef, nbus)
   for (b,v) in enumerate(cuPd)
     cuPd[b] = buses[b].Pd
@@ -241,7 +247,7 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, ti
   viewQg = spfill(cuQg, cuBusGeners, nbus)
   sizeBusGeners = CuArray{Int64,1,Nothing}(size.(cuBusGeners,1))
   
-  # Real power balance
+  # Bus voltage
 
   mapbus2lineto = CuArray{Int64,1,Nothing}([busIdx[lines[l].to] for l in 1:nline]) 
   mapbus2linefrom = CuArray{Int64,1,Nothing}([busIdx[lines[l].from] for l in 1:nline])
@@ -250,28 +256,26 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, ti
   viewVaTo = view(cuVa, mapbus2lineto)
   viewVaFrom = view(cuVa, mapbus2linefrom)
 
-  # branch admitances
+  # Branch admitances
+  YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(lines, buses, baseMVA)
   cuYffR = CuArray{Float64,1,Nothing}(YffR) ; cuYffI = CuArray{Float64,1,Nothing}(YffI) ; cuYttR = CuArray{Float64,1,Nothing}(YttR) ; cuYttI = CuArray{Float64,1,Nothing}(YttI) ; cuYftR = CuArray{Float64,1,Nothing}(YftR)
   cuYftI = CuArray{Float64,1,Nothing}(YftI) ; cuYtfR = CuArray{Float64,1,Nothing}(YtfR) ; cuYtfI = CuArray{Float64,1,Nothing}(YtfI) ; cuYshR = CuArray{Float64,1,Nothing}(YshR) ; cuYshI = CuArray{Float64,1,Nothing}(YshI)
 
-  # real views
   viewYffR = CuArray{Float64,1,Nothing}(undef, nbus) ; 
   for b in 1:nbus viewYffR[b] = sum(view(cuYffR, cuFromLines[b])) end
   viewYttR = CuArray{Float64,1,Nothing}(undef, nbus) ; 
   for b in 1:nbus viewYttR[b] = sum(view(cuYttR, cuToLines[b])) end
-  # imaginary views
   viewYffI = CuArray{Float64,1,Nothing}(undef, nbus) ; 
   for b in 1:nbus viewYffI[b] = sum(.- view(cuYffI, cuFromLines[b])) end
   viewYttI = CuArray{Float64,1,Nothing}(undef, nbus) ; 
   for b in 1:nbus viewYttI[b] = sum(.- view(cuYttI, cuToLines[b])) end
 
-  viewToR = T(undef, nbus) ; 
-  viewFromR = T(undef, nbus) ; 
-  viewToI = T(undef, nbus) ; 
-  viewFromI = T(undef, nbus) ; 
-  #
-  # branch/lines flow limits
-  #
+  viewToR = T(undef, nbus)  
+  viewFromR = T(undef, nbus)  
+  viewToI = T(undef, nbus)
+  viewFromI = T(undef, nbus)  
+
+  # Line limits
   culinelimit = CuArray{Float64,1,Nothing}(undef, nline)
   nlinelimit = 0
   for l in 1:nline
@@ -295,7 +299,8 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, ti
   Ytf_abs2 .= cuYtfR.^2 .+ cuYtfI.^2; Ytt_abs2 .= cuYttR.^2 .+ cuYttI.^2
   Yrefrom .= cuYffR .* cuYftR .+ cuYffI .* cuYftI; Yimfrom .= .- cuYffR .* cuYftI .+ cuYffI .* cuYftR
   Yreto   .= cuYtfR .* cuYttR .+ cuYtfI .* cuYttI; Yimto   .= .- cuYtfR .* cuYttI .+ cuYtfI .* cuYttR
-  fromconnect = maximum(size.(cuFromLines,1))
+
+  # Voltage and bus connectivity
 
   mapfromlines = Array{CuArray{Int64, 1, Nothing},1}(undef, nbus)
   
@@ -307,16 +312,14 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, ti
 
   maptolines = Array{CuArray{Int64, 1, Nothing},1}(undef, nbus)
 
-  toconnect = maximum(size.(cuToLines,1))
   for b in 1:nbus maptolines[b] = mapbus2linefrom[cuToLines[b]] end
   viewVmFromToLines = spfill(cuVm, maptolines, nbus)
   viewcuYtfRToLines = spfill(cuYtfR, cuToLines, nbus)
   viewVaFromToLines = spfill(cuVa, maptolines, nbus) 
   viewcuYtfIToLines = spfill(cuYtfI, cuToLines, nbus)
 
-  @timeit timeroutput "allocation" begin
   ret = CompArrays(cuPg, cuQg, cuVa, cuVm, baseMVA, nbus, nline, ngen, 
-                    coeff0, coeff1, coeff2, # balance constraints
+                    coeff0, coeff1, coeff2, 
                     viewToR, viewFromR, viewToI, viewFromI,
                     viewVmTo, viewVmFrom, viewVaTo, viewVaFrom,
                     viewYffR, viewYttR, viewYffI, viewYttI,
@@ -337,11 +340,10 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, ti
                     sizeFromLines, sizeToLines,
                     cuBusGeners, mapfromlines, maptolines)
   end
-  end
   return ret
 end
 
-function update_arrays!(arrays::CompArrays, cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data::OPFData, timeroutput) where T
+function update_arrays!(arrays::CompArrays, cuPg::T, cuQg::T, cuVa::T, cuVm::T, timeroutput) where T
   @timeit timeroutput "update arrays" begin
   arrays.cuPg .= cuPg
   arrays.cuQg .= cuQg
@@ -369,24 +371,20 @@ function update_arrays!(arrays::CompArrays, cuPg::T, cuQg::T, cuVa::T, cuVm::T, 
   end
 end
 
-function objective(opf_data::OPFData, arrays::CompArrays, timeroutput) where T
+function objective(arrays::CompArrays, timeroutput) where T
   @timeit timeroutput "objective" begin
   # minimize active power
   return sum(arrays.coeff2 .* (arrays.baseMVA .* arrays.cuPg).^2 
-    .+ arrays.coeff1 .* (arrays.baseMVA .* arrays.cuPg)
-    .+ arrays.coeff0)
+          .+ arrays.coeff1 .* (arrays.baseMVA .* arrays.cuPg)
+          .+ arrays.coeff0)
   end
 end
 
-function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf_data::OPFData, arrays::CompArrays, timeroutput::TimerOutput) where T
+function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, arrays::CompArrays, timeroutput::TimerOutput) where T
   @timeit timeroutput "constraints" begin
-  lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
-  busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
-
-  nbus  = length(buses); nline = length(lines); ngen  = length(generators)
-
 
   @timeit timeroutput "cuda kernels" begin
+  nbus = arrays.nbus
 
   function gpu_term1(viewToR, cuVm, colptrVm, nzvalVm, colptrYftR, nzvalYftR,
                               cuVa, colptrVa, nzvalVa, colptrYftI, nzvalYftI,
@@ -507,14 +505,14 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, opf
                (arrays.viewYffR .+ arrays.viewYttR .+ arrays.cuYshR) .* arrays.cuVm.^2 
                .+ arrays.viewToR    # gpu term 1 
                .+ arrays.viewFromR  # gpu term 2
-               .- (((arrays.sumPg .* baseMVA) .- arrays.cuPd) ./ baseMVA) 
+               .- (((arrays.sumPg .* arrays.baseMVA) .- arrays.cuPd) ./ arrays.baseMVA) 
                )
 
   ibalconst .= (
                (arrays.viewYffI .+ arrays.viewYttI .- arrays.cuYshI) .* arrays.cuVm.^2 
                .+ arrays.viewToI    # gpu term 3
                .+ arrays.viewFromI  # gpu term 4
-               .- (((arrays.sumQg .* baseMVA) .- arrays.cuQd) ./ baseMVA) 
+               .- (((arrays.sumQg .* arrays.baseMVA) .- arrays.cuQd) ./ arrays.baseMVA) 
                )
   end
 
