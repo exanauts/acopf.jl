@@ -23,7 +23,7 @@ function test(Pg0, Qg0, Vm0, Va0, timeroutput, case; max_iter=100)
   cuibalconst = CuArray{Float64,1,Nothing}(zeros(Float64, nbus))
   culimitsto = CuArray{Float64,1,Nothing}(zeros(Float64, nline))
   culimitsfrom = CuArray{Float64,1,Nothing}(zeros(Float64, nline))
-  io = open("test.out", "w+")
+  io = open("log.out", "w+")
   function myprint(name,var)
       return
       write(io, name * ": ") 

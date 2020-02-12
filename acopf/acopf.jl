@@ -663,7 +663,7 @@ function myseed!(duals::AbstractArray{ForwardDiff.Dual{T,V,N}}, x,
   # end
     return duals
 end
-function benchmark(Pg, Qg, Vm, Va, npartials, mpartials, loops, timeroutput, opfdata)
+function benchmark(opfdata, Pg, Qg, Vm, Va, npartials, mpartials, loops, timeroutput)
   
   t1s{N} =  ForwardDiff.Dual{Nothing,Float64, N} where N
   t2s{M,N} =  ForwardDiff.Dual{Nothing,t1s{N}, M} where {N, M}
@@ -722,26 +722,26 @@ function benchmark(Pg, Qg, Vm, Va, npartials, mpartials, loops, timeroutput, opf
   t1slimitsfrom = T(undef, length(opfdata.lines))
   println("Create t1s arrays")
   @timeit timeroutput "Create t1s arrays" begin
-  t1sarrays = acopf.create_arrays(t1scuPg, t1scuQg, t1scuVa, t1scuVm, opfdata, t1s{npartials})
+  t1sarrays = acopf.create_arrays(t1scuPg, t1scuQg, t1scuVa, t1scuVm, opfdata, timeroutput)
   end
   println("Initial t1s objective")
   @timeit timeroutput "Initial t1s objective" begin
-  t1sPg = acopf.objective(opfdata, t1sarrays)
+  t1sPg = acopf.objective(t1sarrays, timeroutput)
   end
   println("t1s objective")
   @timeit timeroutput "t1s objective" begin
     for i in 1:loops
-      t1sPg = acopf.objective(opfdata, t1sarrays)
+      t1sPg = acopf.objective(t1sarrays, timeroutput)
     end
   end
   println("Initial t1s constraints")
   @timeit timeroutput "Initial t1s constraints" begin
-  acopf.constraints(t1srbalconst, t1sibalconst, t1slimitsto, t1slimitsfrom, opfdata, t1sarrays, timeroutput)
+  acopf.constraints(t1srbalconst, t1sibalconst, t1slimitsto, t1slimitsfrom, t1sarrays, timeroutput)
   end
   println("t1s constraints")
   @timeit timeroutput "t1s constraints" begin
     for i in 1:loops
-      acopf.constraints(t1srbalconst, t1sibalconst, t1slimitsto, t1slimitsfrom, opfdata, t1sarrays, timeroutput)
+      acopf.constraints(t1srbalconst, t1sibalconst, t1slimitsto, t1slimitsfrom, t1sarrays, timeroutput)
     end
   end
   T = typeof(t2scuQg)
@@ -751,26 +751,26 @@ function benchmark(Pg, Qg, Vm, Va, npartials, mpartials, loops, timeroutput, opf
   t2slimitsfrom = T(undef, length(opfdata.lines))
   println("Create t2s arrays")
   @timeit timeroutput "Create t2s arrays" begin
-  t2sarrays = acopf.create_arrays(t2scuPg, t2scuQg, t2scuVa, t2scuVm, opfdata, t2s{mpartials,npartials})
+  t2sarrays = acopf.create_arrays(t2scuPg, t2scuQg, t2scuVa, t2scuVm, opfdata, timeroutput)
   end
   println("Initial t2s objective")
   @timeit timeroutput "Initial t2s objective" begin
-  t2sPg = acopf.objective(opfdata, t2sarrays)
+  t2sPg = acopf.objective(t2sarrays, timeroutput)
   end
   println("t2s objective")
   @timeit timeroutput "t2s objective" begin
     for i in 1:loops
-      t2sPg = acopf.objective(opfdata, t2sarrays)
+      t2sPg = acopf.objective(t2sarrays, timeroutput)
     end
   end
   println("Initial t2s constraints")
   @timeit timeroutput "Initial t2s constraints" begin
-  acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t2sarrays, timeroutput)
+  acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, t2sarrays, timeroutput)
   end
   println("t2s constraints")
   @timeit timeroutput "t2s constraints" begin
     for i in 1:loops
-      acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, opfdata, t2sarrays, timeroutput)
+      acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, t2sarrays, timeroutput)
     end
   end
   return t1sPg, t2sPg
