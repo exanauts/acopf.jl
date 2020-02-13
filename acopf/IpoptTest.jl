@@ -7,22 +7,30 @@ using ForwardDiff
 using CuArrays, CUDAnative
 using TimerOutputs
 
-function test(Pg0, Qg0, Vm0, Va0, timeroutput, case; max_iter=100)
-  opfdata = acopf.opf_loaddata(case)
+function test(Pg0, Qg0, Vm0, Va0, timeroutput, opfdata, arraytype; max_iter=100)
+
+  if arraytype == CuArray
+    T = CuVector
+  elseif arraytype == Array
+    T = Vector
+  else
+    error("Unkown array type $arraytype.")
+  end
+
   nPg = size(Pg0,1) ; nQg = size(Qg0,1) ; nVm = size(Vm0,1) ; nVa = size(Va0,1)
   n = nPg + nQg + nVm + nVa
   nbus = length(opfdata.buses)
   nline = length(opfdata.lines)
   ngen = length(opfdata.generators)
   m = 2 * nbus + 2 * nline
-  cuPg = CuArray{Float64,1,Nothing}(zeros(Float64, nPg))
-  cuQg = CuArray{Float64,1,Nothing}(zeros(Float64, nQg))
-  cuVa = CuArray{Float64,1,Nothing}(zeros(Float64, nVa))
-  cuVm = CuArray{Float64,1,Nothing}(zeros(Float64, nVm))
-  curbalconst = CuArray{Float64,1,Nothing}(zeros(Float64, nbus))
-  cuibalconst = CuArray{Float64,1,Nothing}(zeros(Float64, nbus))
-  culimitsto = CuArray{Float64,1,Nothing}(zeros(Float64, nline))
-  culimitsfrom = CuArray{Float64,1,Nothing}(zeros(Float64, nline))
+  cuPg = T{Float64}(zeros(Float64, nPg))
+  cuQg = T{Float64}(zeros(Float64, nQg))
+  cuVa = T{Float64}(zeros(Float64, nVa))
+  cuVm = T{Float64}(zeros(Float64, nVm))
+  curbalconst = T{Float64}(zeros(Float64, nbus))
+  cuibalconst = T{Float64}(zeros(Float64, nbus))
+  culimitsto = T{Float64}(zeros(Float64, nline))
+  culimitsfrom = T{Float64}(zeros(Float64, nline))
   io = open("log.out", "w+")
   function myprint(name,var)
       return
@@ -40,7 +48,7 @@ function test(Pg0, Qg0, Vm0, Va0, timeroutput, case; max_iter=100)
     cuQg[:] = x[nPg+1:nPg+nQg] 
     cuVa[:] = x[nPg+nQg+1:nPg+nQg+nVa] 
     cuVm[:] = x[nPg+nQg+nVa+1:end] 
-    arrays = acopf.create_arrays(cuPg, cuQg, cuVa, cuVm, opfdata, timeroutput)
+    arrays = acopf.create_arrays(cuPg, cuQg, cuVa, cuVm, opfdata, timeroutput, arraytype)
     obj = acopf.objective(arrays, timeroutput)
     myprint("fx", x)
     myprint("fy", obj)
@@ -54,7 +62,7 @@ function test(Pg0, Qg0, Vm0, Va0, timeroutput, case; max_iter=100)
     cuQg[:] = x[nPg+1:nPg+nQg] 
     cuVa[:] = x[nPg+nQg+1:nPg+nQg+nVa] 
     cuVm[:] = x[nPg+nQg+nVa+1:end] 
-    arrays = acopf.create_arrays(cuPg, cuQg, cuVa, cuVm, opfdata, timeroutput)
+    arrays = acopf.create_arrays(cuPg, cuQg, cuVa, cuVm, opfdata, timeroutput, arraytype)
     acopf.constraints(curbalconst, cuibalconst, culimitsto, culimitsfrom, arrays, timeroutput)
     g[1:nbus] = curbalconst[:]
     g[nbus+1:2*nbus] = cuibalconst[:]
@@ -72,10 +80,10 @@ function test(Pg0, Qg0, Vm0, Va0, timeroutput, case; max_iter=100)
       Qg = x[nPg+1:nPg+nQg]
       Va = x[nPg+nQg+1:nPg+nQg+nVa]
       Vm = x[nPg+nQg+nVa+1:end]
-      arrays = acopf.create_arrays(Pg, Qg, Va, Vm, opfdata, timeroutput)
+      arrays = acopf.create_arrays(Pg, Qg, Va, Vm, opfdata, timeroutput, arraytype)
       return acopf.objective(arrays, timeroutput)
     end
-    cux = CuArray{Float64,1,Nothing}(x)
+    cux = T{Float64}(x)
     g = cux -> ForwardDiff.gradient(objective, cux)
     grad_f[:] = g(cux)
     myprint("grad_x", x)
@@ -108,19 +116,19 @@ function test(Pg0, Qg0, Vm0, Va0, timeroutput, case; max_iter=100)
         y[2*nbus+nline+1:end] = limitsfrom[:] 
         return y
       end
-      cux = CuArray{Float64,1,Nothing}(x)
+      cux = T{Float64}(x)
       cfg = ForwardDiff.JacobianConfig(constraints, cux)
-      rbalconst   = CuArray{eltype(cfg)}(undef, nbus)
-      ibalconst   = CuArray{eltype(cfg)}(undef, nbus)
-      limitsto    = CuArray{eltype(cfg)}(undef, nline)
-      limitsfrom  = CuArray{eltype(cfg)}(undef, nline)
-      y = CuArray{eltype(cfg)}(undef, 2*nbus+2*nline)
-      diffcux = CuArray{eltype(cfg),1,Nothing}(x)
+      rbalconst   = T{eltype(cfg)}(undef, nbus)
+      ibalconst   = T{eltype(cfg)}(undef, nbus)
+      limitsto    = T{eltype(cfg)}(undef, nline)
+      limitsfrom  = T{eltype(cfg)}(undef, nline)
+      y = T{eltype(cfg)}(undef, 2*nbus+2*nline)
+      diffcux = T{eltype(cfg)}(x)
       Pg = diffcux[1:nPg]
       Qg = diffcux[nPg+1:nPg+nQg]
       Va = diffcux[nPg+nQg+1:nPg+nQg+nVa]
       Vm = diffcux[nPg+nQg+nVa+1:end]
-      arrays = acopf.create_arrays(Pg, Qg, Va, Vm, opfdata, timeroutput)
+      arrays = acopf.create_arrays(Pg, Qg, Va, Vm, opfdata, timeroutput, arraytype)
       fjac = cux -> ForwardDiff.jacobian(constraints, cux, cfg)
       jac = fjac(cux)
       k = 1
@@ -154,12 +162,12 @@ function test(Pg0, Qg0, Vm0, Va0, timeroutput, case; max_iter=100)
         Qg = x[nPg+1:nPg+nQg]
         Va = x[nPg+nQg+1:nPg+nQg+nVa]
         Vm = x[nPg+nQg+nVa+1:end]
-        arrays = acopf.create_arrays(Pg, Qg, Va, Vm, opfdata, timeroutput)
+        arrays = acopf.create_arrays(Pg, Qg, Va, Vm, opfdata, timeroutput, arraytype)
         return acopf.objective(arrays, timeroutput)
       end
       
       @timeit timeroutput "moving to GPU" begin
-      cux = CuArray{Float64,1,Nothing}(x)
+      cux = T{Float64}(x)
       end
       h = cux -> ForwardDiff.hessian(objective, cux)
       objhess = h(cux)
@@ -178,7 +186,6 @@ function test(Pg0, Qg0, Vm0, Va0, timeroutput, case; max_iter=100)
         Va = x[nPg+nQg+1:nPg+nQg+nVa]
         Vm = x[nPg+nQg+nVa+1:end]
         acopf.update_arrays!(arrays, Pg, Qg, Va, Vm, timeroutput)
-        T = typeof(x)
         acopf.constraints(rbalconst, ibalconst, limitsto, limitsfrom, arrays, timeroutput)
         y[1:nbus] = rbalconst[:] 
         y[nbus+1:2*nbus] = ibalconst[:] 
@@ -189,19 +196,19 @@ function test(Pg0, Qg0, Vm0, Va0, timeroutput, case; max_iter=100)
       @timeit timeroutput "remaining" begin
       cfg1 = ForwardDiff.JacobianConfig(nothing, x, ForwardDiff.Chunk(x))
       cfg = ForwardDiff.JacobianConfig(nothing, cfg1.duals, ForwardDiff.Chunk(x))
-      rbalconst   = CuArray{eltype(cfg), 1, Nothing}(undef, nbus)
-      ibalconst   = CuArray{eltype(cfg), 1, Nothing}(undef, nbus)
-      limitsto    = CuArray{eltype(cfg), 1, Nothing}(undef, nline)
-      limitsfrom  = CuArray{eltype(cfg), 1, Nothing}(undef, nline)
-      y = CuArray{eltype(cfg)}(undef, 2*nbus+2*nline)
-      diffcux = CuArray{eltype(cfg),1,Nothing}(x)
+      rbalconst   = T{eltype(cfg)}(undef, nbus)
+      ibalconst   = T{eltype(cfg)}(undef, nbus)
+      limitsto    = T{eltype(cfg)}(undef, nline)
+      limitsfrom  = T{eltype(cfg)}(undef, nline)
+      y = T{eltype(cfg)}(undef, 2*nbus+2*nline)
+      diffcux = T{eltype(cfg)}(x)
       Pg = diffcux[1:nPg]
       Qg = diffcux[nPg+1:nPg+nQg]
       Va = diffcux[nPg+nQg+1:nPg+nQg+nVa]
       Vm = diffcux[nPg+nQg+nVa+1:end]
       end
       @timeit timeroutput "compute hessian" begin
-      arrays = acopf.create_arrays(Pg, Qg, Va, Vm, opfdata, timeroutput)
+      arrays = acopf.create_arrays(Pg, Qg, Va, Vm, opfdata, timeroutput, arraytype)
       fhess = x -> ForwardDiff.jacobian(x -> ForwardDiff.jacobian(constraints, x), x)
       hess = fhess(cux)
       end
