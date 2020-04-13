@@ -6,6 +6,8 @@ using .acopf
 using ForwardDiff
 using CuArrays, CUDAnative
 using TimerOutputs
+using SparseDiffTools
+using SparseArrays
 
 function test(Pg0, Qg0, Vm0, Va0, timeroutput, opfdata, arraytype; max_iter=100)
 
@@ -23,6 +25,50 @@ function test(Pg0, Qg0, Vm0, Va0, timeroutput, opfdata, arraytype; max_iter=100)
   nline = length(opfdata.lines)
   ngen = length(opfdata.generators)
   m = 2 * nbus + 2 * nline
+
+  function get_jac_sparsity()
+    println("Computing coloring...")
+    x = Vector{Float64}(ones(Float64, n))  
+    Pg = Vector{Float64}(zeros(Float64, nPg))
+    Qg = Vector{Float64}(zeros(Float64, nQg))
+    Va = Vector{Float64}(zeros(Float64, nVa))
+    Vm = Vector{Float64}(zeros(Float64, nVm))
+    rbalconst = Vector{Float64}(zeros(Float64, nbus))
+    ibalconst = Vector{Float64}(zeros(Float64, nbus))
+    limitsto = Vector{Float64}(zeros(Float64, nline))
+    limitsfrom = Vector{Float64}(zeros(Float64, nline))
+    function constraints(x)
+      Pg = x[1:nPg]
+      Qg = x[nPg+1:nPg+nQg]
+      Va = x[nPg+nQg+1:nPg+nQg+nVa]
+      Vm = x[nPg+nQg+nVa+1:end]
+      acopf.update_arrays!(arrays, Pg, Qg, Va, Vm, timeroutput)
+      acopf.constraints(rbalconst, ibalconst, limitsto, limitsfrom, arrays, timeroutput)
+      y[1:nbus] = rbalconst[:] 
+      y[nbus+1:2*nbus] = ibalconst[:] 
+      y[2*nbus+1:2*nbus+nline] = limitsto[:] 
+      y[2*nbus+nline+1:end] = limitsfrom[:] 
+      return y
+    end
+    cux = Vector{Float64}(x)
+    cfg = ForwardDiff.JacobianConfig(constraints, cux)
+    rbalconst   = Vector{eltype(cfg)}(undef, nbus)
+    ibalconst   = Vector{eltype(cfg)}(undef, nbus)
+    limitsto    = Vector{eltype(cfg)}(undef, nline)
+    limitsfrom  = Vector{eltype(cfg)}(undef, nline)
+    y = Vector{eltype(cfg)}(undef, 2*nbus+2*nline)
+    diffcux = Vector{eltype(cfg)}(x)
+    Pg = diffcux[1:nPg]
+    Qg = diffcux[nPg+1:nPg+nQg]
+    Va = diffcux[nPg+nQg+1:nPg+nQg+nVa]
+    Vm = diffcux[nPg+nQg+nVa+1:end]
+    arrays = acopf.create_arrays(Pg, Qg, Va, Vm, opfdata, timeroutput, Array)
+    fjac = cux -> ForwardDiff.jacobian(constraints, cux, cfg)
+    jac = sparse(fjac(cux))
+    colors = unique(matrix_colors(jac))
+    println("Done.")
+    return colors
+  end
   cuPg = T{Float64}(zeros(Float64, nPg))
   cuQg = T{Float64}(zeros(Float64, nQg))
   cuVa = T{Float64}(zeros(Float64, nVa))
@@ -31,6 +77,8 @@ function test(Pg0, Qg0, Vm0, Va0, timeroutput, opfdata, arraytype; max_iter=100)
   cuibalconst = T{Float64}(zeros(Float64, nbus))
   culimitsto = T{Float64}(zeros(Float64, nline))
   culimitsfrom = T{Float64}(zeros(Float64, nline))
+  # println("Number of Jacobian colors: ", size(get_jac_sparsity(),1))
+  # return
   io = open("log.out", "w+")
   function myprint(name,var)
       return

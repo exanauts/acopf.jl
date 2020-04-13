@@ -30,17 +30,14 @@ function jump_model(opfdata, max_iter)
   end
   return Pg, Qg, Vm, Va
 end
-# JuMP model
 function main()
   max_iter=100
-  arraytype = CuArray
+  arraytype = Array
   @timeit timeroutput "load data" begin
   opfdata = jumpmodel.opf_loaddata(case)
   end
   Pg, Qg, Vm, Va = jump_model(opfdata, max_iter)
-  # Pg0 = value.(Pg) ; Qg0 = value.(Qg) ; Vm0 = value.(Vm) ; Va0 = value.(Va)
   Pg0, Qg0, Vm0, Va0 = jumpmodel.initialPt_IPOPT(opfdata)
-  # t1sPg, t2sPg = acopf.benchmark(Pg0, Qg0, Vm0, Va0, 3, 3, 0, timeroutput, opfdata)
   println("Ipopt interface")
   @timeit timeroutput "warmup" begin
   IpoptTest.test(Pg0, Qg0, Vm0, Va0, timeroutput, opfdata, arraytype; max_iter = max_iter)

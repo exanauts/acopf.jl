@@ -5,6 +5,7 @@ using CuArrays, CUDAnative
 using ForwardDiff
 using TimerOutputs
 using .jumpmodel
+# using InteractiveUtils
 
 export create_arrays, objective, constraints 
 export myseed!
@@ -287,11 +288,18 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, arr
   arrays.viewFromI .= 0.0
   arraytype = arrays.stype
 
-  kernels.@sync arraytype begin
-  kernels.@dispatch arraytype threads=128 blocks=32 sumPg(arrays.sumPg, arrays.viewPg.colptr, arrays.viewPg.nzval)
-  kernels.@dispatch arraytype threads=128 blocks=32 sumQg(arrays.sumQg, arrays.viewQg.colptr, arrays.viewQg.nzval)
+  # nthreads=nbus
+  # nblocks=1
+  nthreads=256
+  # println("Threads: ", nthreads)
+  nblocks=ceil(Int64, nbus/nthreads)
+  # println("Blocks: ", nblocks)
 
-  kernels.@dispatch arraytype threads=128 blocks=32 term1(arrays.viewToR, arrays.cuVm, 
+  kernels.@sync arraytype begin
+  kernels.@dispatch arraytype threads=nthreads blocks=nblocks sumPg(arrays.sumPg, arrays.viewPg.colptr, arrays.viewPg.nzval)
+  kernels.@dispatch arraytype threads=nthreads blocks=nblocks sumQg(arrays.sumQg, arrays.viewQg.colptr, arrays.viewQg.nzval)
+
+  kernels.@dispatch arraytype threads=nthreads blocks=nblocks term1(arrays.viewToR, arrays.cuVm, 
                                         arrays.viewVmToFromLines.colptr, arrays.viewVmToFromLines.nzval,
                                         arrays.viewcuYftRFromLines.colptr, arrays.viewcuYftRFromLines.nzval,
                                         arrays.cuVa, 
@@ -299,7 +307,7 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, arr
                                         arrays.viewcuYftIFromLines.colptr, arrays.viewcuYftIFromLines.nzval,
                                         arrays.sizeFromLines) 
 
-  kernels.@dispatch arraytype threads=128 blocks=32 term2(arrays.viewFromR, arrays.cuVm, 
+  kernels.@dispatch arraytype threads=nthreads blocks=nblocks term2(arrays.viewFromR, arrays.cuVm, 
                                         arrays.viewVmFromToLines.colptr, arrays.viewVmFromToLines.nzval,
                                         arrays.viewcuYtfRToLines.colptr, arrays.viewcuYtfRToLines.nzval,
                                         arrays.cuVa, 
@@ -307,7 +315,7 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, arr
                                         arrays.viewcuYtfIToLines.colptr, arrays.viewcuYtfIToLines.nzval,
                                         arrays.sizeToLines) 
 
-  kernels.@dispatch arraytype threads=128 blocks=32 term3(arrays.viewToI, arrays.cuVm, 
+  kernels.@dispatch arraytype threads=nthreads blocks=nblocks term3(arrays.viewToI, arrays.cuVm, 
                                         arrays.viewVmToFromLines.colptr, arrays.viewVmToFromLines.nzval,
                                         arrays.viewcuYftIFromLines.colptr, arrays.viewcuYftIFromLines.nzval,
                                         arrays.cuVa, 
@@ -315,7 +323,7 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, arr
                                         arrays.viewcuYftRFromLines.colptr, arrays.viewcuYftRFromLines.nzval,
                                         arrays.sizeFromLines) 
 
-  kernels.@dispatch arraytype threads=128 blocks=32 term4(arrays.viewFromI, arrays.cuVm, 
+  kernels.@dispatch arraytype threads=nthreads blocks=nblocks term4(arrays.viewFromI, arrays.cuVm, 
                                         arrays.viewVmFromToLines.colptr, arrays.viewVmFromToLines.nzval,
                                         arrays.viewcuYtfIToLines.colptr, arrays.viewcuYtfIToLines.nzval,
                                         arrays.cuVa, 
@@ -327,15 +335,15 @@ function constraints(rbalconst::T, ibalconst::T, limitsto::T, limitsfrom::T, arr
   @timeit timeroutput "balance constraints" begin
   rbalconst .= (
                (arrays.viewYffR .+ arrays.viewYttR .+ arrays.cuYshR) .* arrays.cuVm.^2 
-               .+ arrays.viewToR    # gpu term 1 
-               .+ arrays.viewFromR  # gpu term 2
+               .+ arrays.viewToR    # kernel term 1 
+               .+ arrays.viewFromR  # kernel term 2
                .- (((arrays.sumPg .* arrays.baseMVA) .- arrays.cuPd) ./ arrays.baseMVA) 
                )
 
   ibalconst .= (
                (arrays.viewYffI .+ arrays.viewYttI .- arrays.cuYshI) .* arrays.cuVm.^2 
-               .+ arrays.viewToI    # gpu term 3
-               .+ arrays.viewFromI  # gpu term 4
+               .+ arrays.viewToI    # kernel term 3
+               .+ arrays.viewFromI  # kernel term 4
                .- (((arrays.sumQg .* arrays.baseMVA) .- arrays.cuQd) ./ arrays.baseMVA) 
                )
   end
@@ -410,24 +418,33 @@ function benchmark(opfdata, Pg, Qg, Vm, Va, npartials, mpartials, loops, timerou
   end
 
 
-  t2sseedvec = Array{t1s{npartials},1}(undef, mpartials)
-  t2sseeds = Array{ForwardDiff.Partials{mpartials,t1s{npartials}},1}(undef, size(Pg,1))
-  t2sseedvec .= 0.0
-  for i in 1:mpartials
-    t2sseedvec[i] = 1.0
-    t2sseeds[i] = ForwardDiff.Partials{mpartials, t1s{npartials}}(NTuple{mpartials, t1s{npartials}}(t2sseedvec))
-    t2sseedvec[i] = 0.0
-  end
-  for i in mpartials+1:size(Pg,1)
-    t2sseeds[i] = ForwardDiff.Partials{mpartials, t1s{npartials}}(NTuple{mpartials, t1s{npartials}}(t2sseedvec))
-  end
+  # # t2sseedvec = Array{t1s{npartials},1}(undef, mpartials)
+  # t2sseedvec = Array{t1s{npartials},1}(undef, npartials)
+  # # t2sseeds = Array{ForwardDiff.Partials{mpartials,t1s{npartials}},1}(undef, size(Pg,1))
+  # t2sseeds = Array{ForwardDiff.Partials{mpartials,t1s{npartials}},1}(undef, mpartials)
+  # t2sseedvec .= 0.0
+  # for i in 1:mpartials
+  #   t2sseedvec[i] = 1.0
+  #   # t2sseeds[i] = ForwardDiff.Partials{mpartials, t1s{npartials}}(NTuple{mpartials, t1s{npartials}}(t2sseedvec))
+  #   t2sseeds[i] = ForwardDiff.Partials{mpartials, t1s{npartials}}(NTuple{npartials, t1s{npartials}}(t2sseedvec))
+  #   t2sseedvec[i] = 0.0
+  # end
+  # for i in mpartials+1:size(Pg,1)
+  #   t2sseeds[i] = ForwardDiff.Partials{mpartials, t1s{npartials}}(NTuple{mpartials, t1s{npartials}}(t2sseedvec))
+  # end
   # t2sseedtup = NTuple{size(Pg,1), ForwardDiff.Partials{size(Pg,1), Float64}}(t1sseeds)
   @timeit timeroutput "t2s seeding" begin
-  t2scuPg = acopf.myseed!(t2sT(undef, size(Pg,1)), t1scuPg, t2sseeds, timeroutput)
+  # t2scuPg = acopf.myseed!(t2sT(undef, size(Pg,1)), t1scuPg, t2sseeds, timeroutput)
+  # t2scuPg = acopf.myseed!(t2sT(undef, size(Pg,1)), t1scuPg, t2sseeds, timeroutput)
+  # t2scuPg = ForwardDiff.seed!(t2sT(undef, size(Qg,1)), t1scuPg)
   # t2scuPg = ForwardDiff.seed!(t2sT(undef, size(Pg,1)), t1scuPg)
-  t2scuQg = ForwardDiff.seed!(t2sT(undef, size(Qg,1)), t1scuQg)
-  t2scuVa = ForwardDiff.seed!(t2sT(undef, size(Va,1)), t1scuVa)
-  t2scuVm = ForwardDiff.seed!(t2sT(undef, size(Vm,1)), t1scuVm)
+  # t2scuQg = ForwardDiff.seed!(t2sT(undef, size(Qg,1)), t1scuQg)
+  # t2scuVa = ForwardDiff.seed!(t2sT(undef, size(Va,1)), t1scuVa)
+  # t2scuVm = ForwardDiff.seed!(t2sT(undef, size(Vm,1)), t1scuVm)
+  t2scuPg = t2sT(undef, size(Pg,1))
+  t2scuQg = t2sT(undef, size(Qg,1))
+  t2scuVa = t2sT(undef, size(Va,1))
+  t2scuVm = t2sT(undef, size(Vm,1))
   end
   # @show t2scuPg
 
@@ -459,8 +476,8 @@ function benchmark(opfdata, Pg, Qg, Vm, Va, npartials, mpartials, loops, timerou
   @timeit timeroutput "Initial t1s constraints" begin
   acopf.constraints(t1srbalconst, t1sibalconst, t1slimitsto, t1slimitsfrom, t1sarrays, timeroutput)
   end
-  println("t1s constraints")
-  @timeit timeroutput "t1s constraints" begin
+  println("t1s constraints $npartials")
+  @timeit timeroutput "t1s constraints $npartials" begin
     for i in 1:loops
       acopf.constraints(t1srbalconst, t1sibalconst, t1slimitsto, t1slimitsfrom, t1sarrays, timeroutput)
     end
@@ -476,7 +493,7 @@ function benchmark(opfdata, Pg, Qg, Vm, Va, npartials, mpartials, loops, timerou
   end
   println("Initial t2s objective")
   @timeit timeroutput "Initial t2s objective" begin
-  t2sPg = acopf.objective(t2sarrays, timeroutput)
+  t2sPg = acopf.objective(t2sarrays, timeroutput);
   end
   println("t2s objective")
   @timeit timeroutput "t2s objective" begin
@@ -489,12 +506,12 @@ function benchmark(opfdata, Pg, Qg, Vm, Va, npartials, mpartials, loops, timerou
   acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, t2sarrays, timeroutput)
   end
   println("t2s constraints")
-  @timeit timeroutput "t2s constraints" begin
+  @timeit timeroutput "t2s constraints $npartials" begin
     for i in 1:loops
       acopf.constraints(t2srbalconst, t2sibalconst, t2slimitsto, t2slimitsfrom, t2sarrays, timeroutput)
     end
   end
-  return t1sPg, t2sPg
+  return nothing
 end
 end
 

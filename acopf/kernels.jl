@@ -17,7 +17,7 @@ module kernels
 
   macro dispatch(type, threads, blocks, expr)
     cuda = Meta.parse("kernels.cuda_$expr")
-    cpu = Meta.parse("kernels.$expr")
+    cpu = Meta.parse("kernels.cpu_$expr")
     ex = nothing
     ex = quote 
       if $type == CuArray
@@ -32,8 +32,8 @@ module kernels
   function cuda_term1(viewToR, cuVm, colptrVm, nzvalVm, colptrYftR, nzvalYftR,
                               cuVa, colptrVa, nzvalVa, colptrYftI, nzvalYftI,
                               sizeFromLines) 
-      index = threadIdx().x    
-      stride = blockDim().x
+      index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+      stride = blockDim().x * gridDim().x
       for b in index:stride:size(viewToR,1)
         for (i,c) in enumerate(colptrVm[b]:colptrVm[b+1]-1)
           @inbounds viewToR[b] += cuVm[b] * nzvalVm[c] * 
@@ -48,8 +48,8 @@ module kernels
   function cuda_term2(viewFromR, cuVm, colptrVm, nzvalVm, colptrYtfR, nzvalYtfR,
                                   cuVa, colptrVa, nzvalVa, colptrYtfI, nzvalYtfI,
                                   sizeToLines) 
-      index = threadIdx().x    
-      stride = blockDim().x
+      index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+      stride = blockDim().x * gridDim().x
       for b in index:stride:size(viewFromR,1)
         for (i,c) in enumerate(colptrVm[b]:colptrVm[b+1]-1)
           @inbounds viewFromR[b] += cuVm[b] * nzvalVm[c] * 
@@ -64,8 +64,8 @@ module kernels
   function cuda_term3(viewToI, cuVm, colptrVm, nzvalVm, colptrYftI, nzvalYftI,
                               cuVa, colptrVa, nzvalVa, colptrYftR, nzvalYftR,
                               sizeFromLines) 
-      index = threadIdx().x    
-      stride = blockDim().x
+      index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+      stride = blockDim().x * gridDim().x
       for b in index:stride:size(viewToI,1)
         for (i,c) in enumerate(colptrVm[b]:colptrVm[b+1]-1)
           @inbounds viewToI[b] += cuVm[b] * nzvalVm[c] * 
@@ -80,8 +80,8 @@ module kernels
   function cuda_term4(viewFromI, cuVm, colptrVm, nzvalVm, colptrYtfI, nzvalYtfI,
                                   cuVa, colptrVa, nzvalVa, colptrYtfR, nzvalYtfR,
                                   sizeToLines) 
-      index = threadIdx().x    
-      stride = blockDim().x
+      index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+      stride = blockDim().x * gridDim().x
       for b in index:stride:size(viewFromI,1)
         for (i,c) in enumerate(colptrVm[b]:colptrVm[b+1]-1)
           @inbounds viewFromI[b] += cuVm[b] * nzvalVm[c] * 
@@ -93,8 +93,8 @@ module kernels
       return nothing
   end
   function cuda_sumPg(sumPg, colptr, nzval)
-      index = threadIdx().x    
-      stride = blockDim().x
+      index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+      stride = blockDim().x * gridDim().x
       for b in index:stride:size(sumPg,1)
         for c in colptr[b]:colptr[b+1]-1
             @inbounds sumPg[b] += nzval[c]
@@ -103,8 +103,8 @@ module kernels
       return nothing
   end
   function cuda_sumQg(sumQg, colptr, nzval)
-      index = threadIdx().x    
-      stride = blockDim().x
+      index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+      stride = blockDim().x * gridDim().x
       for b in index:stride:size(sumQg,1)
         for c in colptr[b]:colptr[b+1]-1
             @inbounds sumQg[b] += nzval[c]
@@ -112,10 +112,10 @@ module kernels
       end
       return nothing
   end
-  function term1(viewToR, cuVm, colptrVm, nzvalVm, colptrYftR, nzvalYftR,
+  function cpu_term1(viewToR, cuVm, colptrVm, nzvalVm, colptrYftR, nzvalYftR,
                               cuVa, colptrVa, nzvalVa, colptrYftI, nzvalYftI,
                               sizeFromLines) 
-      for b in 1:size(viewToR,1)
+      Threads.@threads for b in 1:size(viewToR,1)
         for (i,c) in enumerate(colptrVm[b]:colptrVm[b+1]-1)
           viewToR[b] += cuVm[b] * nzvalVm[c] * 
                                   (  nzvalYftR[c] * cos(cuVa[b] - nzvalVa[c])     
@@ -126,7 +126,7 @@ module kernels
       return nothing
   end
 
-  function term2(viewFromR, cuVm, colptrVm, nzvalVm, colptrYtfR, nzvalYtfR,
+  function cpu_term2(viewFromR, cuVm, colptrVm, nzvalVm, colptrYtfR, nzvalYtfR,
                                   cuVa, colptrVa, nzvalVa, colptrYtfI, nzvalYtfI,
                                   sizeToLines) 
       for b in 1:size(viewFromR,1)
@@ -140,7 +140,7 @@ module kernels
       return nothing
   end
 
-  function term3(viewToI, cuVm, colptrVm, nzvalVm, colptrYftI, nzvalYftI,
+  function cpu_term3(viewToI, cuVm, colptrVm, nzvalVm, colptrYftI, nzvalYftI,
                               cuVa, colptrVa, nzvalVa, colptrYftR, nzvalYftR,
                               sizeFromLines) 
       for b in 1:size(viewToI,1)
@@ -154,7 +154,7 @@ module kernels
       return nothing
   end
 
-  function term4(viewFromI, cuVm, colptrVm, nzvalVm, colptrYtfI, nzvalYtfI,
+  function cpu_term4(viewFromI, cuVm, colptrVm, nzvalVm, colptrYtfI, nzvalYtfI,
                                   cuVa, colptrVa, nzvalVa, colptrYtfR, nzvalYtfR,
                                   sizeToLines) 
       for b in 1:size(viewFromI,1)
@@ -167,7 +167,7 @@ module kernels
       end
       return nothing
   end
-  function sumPg(sumPg, colptr, nzval)
+  function cpu_sumPg(sumPg, colptr, nzval)
       for b in 1:size(sumPg,1)
         for c in colptr[b]:colptr[b+1]-1
             @inbounds sumPg[b] += nzval[c]
@@ -175,7 +175,7 @@ module kernels
       end
       return nothing
   end
-  function sumQg(sumQg, colptr, nzval)
+  function cpu_sumQg(sumQg, colptr, nzval)
       for b in 1:size(sumQg,1)
         for c in colptr[b]:colptr[b+1]-1
             sumQg[b] += nzval[c]
