@@ -1,8 +1,6 @@
 module IpoptTest
-include("acopf.jl")
 using Ipopt
-using Test
-using .acopf
+using acopf
 using ForwardDiff
 using CuArrays, CUDAnative
 using TimerOutputs

@@ -38,7 +38,7 @@ YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(lines, bus
 #
 # JuMP model now
 #
-opfmodel = Model(with_optimizer(Ipopt.Optimizer, max_iter = max_iter))
+opfmodel = Model(optimizer_with_attributes(Ipopt.Optimizer, "max_iter" => max_iter))
 
 @variable(opfmodel, generators[i].Pmin <= Pg[i=1:ngen] <= generators[i].Pmax)
 @variable(opfmodel, generators[i].Qmin <= Qg[i=1:ngen] <= generators[i].Qmax)

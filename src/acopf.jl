@@ -1,11 +1,10 @@
 module acopf
-
+include("opfdata.jl")
 include("jumpmodel.jl")
+include("IpoptTest.jl")
 using CuArrays, CUDAnative
 using ForwardDiff
 using TimerOutputs
-using .jumpmodel
-# using InteractiveUtils
 
 export create_arrays, objective, constraints 
 export myseed!
