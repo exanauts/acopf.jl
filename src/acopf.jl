@@ -1,7 +1,7 @@
 module acopf
 include("opfdata.jl")
 include("jumpmodel.jl")
-include("IpoptTest.jl")
+# include("IpoptTest.jl")
 using CuArrays, CUDAnative
 using ForwardDiff
 using TimerOutputs
@@ -154,13 +154,13 @@ function create_arrays(cuPg::T, cuQg::T, cuVa::T, cuVm::T, opf_data, timeroutput
   cuYftI = TVector{Float64}(YftI) ; cuYtfR = TVector{Float64}(YtfR) ; cuYtfI = TVector{Float64}(YtfI) ; cuYshR = TVector{Float64}(YshR) ; cuYshI = TVector{Float64}(YshI)
 
   viewYffR = TVector{Float64}(undef, nbus) ; 
-  for b in 1:nbus viewYffR[b] = sum(view(cuYffR, cuFromLines[b])) end
+  for b in 1:nbus viewYffR[b] = sum(cuYffR[cuFromLines[b]]) end
   viewYttR = TVector{Float64}(undef, nbus) ; 
-  for b in 1:nbus viewYttR[b] = sum(view(cuYttR, cuToLines[b])) end
+  for b in 1:nbus viewYttR[b] = sum(cuYttR[cuToLines[b]]) end
   viewYffI = TVector{Float64}(undef, nbus) ; 
-  for b in 1:nbus viewYffI[b] = sum(.- view(cuYffI, cuFromLines[b])) end
+  for b in 1:nbus viewYffI[b] = sum(.- cuYffI[cuFromLines[b]]) end
   viewYttI = TVector{Float64}(undef, nbus) ; 
-  for b in 1:nbus viewYttI[b] = sum(.- view(cuYttI, cuToLines[b])) end
+  for b in 1:nbus viewYttI[b] = sum(.- cuYttI[cuToLines[b]]) end
 
   viewToR = T(undef, nbus)  
   viewFromR = T(undef, nbus)  
