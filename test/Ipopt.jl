@@ -1,11 +1,10 @@
-module IpoptTest
 using Ipopt
-using acopf
 using ForwardDiff
 using CuArrays, CUDAnative
 using TimerOutputs
 using SparseDiffTools
 using SparseArrays
+timeroutput = TimerOutput()
 
 function test(Pg0, Qg0, Vm0, Va0, timeroutput, opfdata, arraytype; max_iter=100)
 
@@ -332,7 +331,6 @@ function test(Pg0, Qg0, Vm0, Va0, timeroutput, opfdata, arraytype; max_iter=100)
 
   solvestat = solveProblem(prob)
   close(io)
-  return
+  return prob.obj_val
 
-end
 end
