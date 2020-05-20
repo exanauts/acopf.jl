@@ -1,11 +1,10 @@
-module jumpmodel
 using JuMP
 using Ipopt
 using Printf
 using DelimitedFiles
+using acopf
 
 export solve, model, initialPt_IPOPT, outputAll, computeAdmitances
-include("opfdata.jl")
 function solve(opfmodel, opf_data)
 
 # 
@@ -33,7 +32,7 @@ busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToL
 nbus  = length(buses); nline = length(lines); ngen  = length(generators)
 
 #branch admitances
-YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(lines, buses, baseMVA)
+YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = acopf.computeAdmitances(lines, buses, baseMVA)
 
 #
 # JuMP model now
@@ -240,5 +239,4 @@ function outputAll(opfmodel, opf_data, Pg, Qg, Va, Vm)
   #println(getvalue(Qg))
 
   return
-end
 end
