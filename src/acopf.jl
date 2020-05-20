@@ -1,6 +1,6 @@
 module acopf
 include("opfdata.jl")
-include("jumpmodel.jl")
+# include("jumpmodel.jl")
 # include("IpoptTest.jl")
 using CuArrays, CUDAnative
 using ForwardDiff

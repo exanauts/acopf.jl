@@ -4,6 +4,7 @@ using CuArrays, CUDAnative
 using TimerOutputs
 using SparseDiffTools
 using SparseArrays
+using acopf
 timeroutput = TimerOutput()
 
 function test(Pg0, Qg0, Vm0, Va0, timeroutput, opfdata, arraytype; max_iter=100)

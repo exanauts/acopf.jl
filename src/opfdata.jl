@@ -303,3 +303,29 @@ function mapGenersToBuses(buses, generators,busDict)
   return gen2bus
 end
 
+function initialPt_IPOPT(opfdata)
+Pg=zeros(length(opfdata.generators)); Qg=zeros(length(opfdata.generators)); i=1
+for g in opfdata.generators
+    # set the power levels in in between the bounds as suggested by matpower 
+    # (case data also contains initial values in .Pg and .Qg - not used with IPOPT)
+    Pg[i]=0.5*(g.Pmax+g.Pmin)
+    Qg[i]=0.5*(g.Qmax+g.Qmin)
+    i=i+1
+end
+@assert i-1==length(opfdata.generators)
+
+Vm=zeros(length(opfdata.buses)); i=1;
+for b in opfdata.buses
+    # set the ini val for voltage magnitude in between the bounds 
+    # (case data contains initials values in Vm - not used with IPOPT)
+    Vm[i]=0.5*(b.Vmax+b.Vmin); 
+    i=i+1
+end
+@assert i-1==length(opfdata.buses)
+
+# set all angles to the angle of the reference bus
+Va = opfdata.buses[opfdata.bus_ref].Va * ones(length(opfdata.buses))
+
+return Pg,Qg,Vm,Va
+end
+
