@@ -7,7 +7,7 @@ pkg> activate .
 pkg> instantiate
 ```
 
-## Run Tests
+## Run tests
 ```julia
 julia> include("test/runtests.jl")
 ```
