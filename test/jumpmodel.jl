@@ -1,5 +1,6 @@
 using JuMP
 using Ipopt
+using Hiop
 using Printf
 using DelimitedFiles
 using acopf
@@ -24,7 +25,7 @@ end
 return opfmodel,status
 end
 
-function model(opf_data; max_iter=100)
+function model(opf_data; max_iter=100, solver="Ipopt")
 #shortcuts for compactness
 lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
 busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
@@ -37,7 +38,11 @@ YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = acopf.computeAdmitances(line
 #
 # JuMP model now
 #
-opfmodel = Model(optimizer_with_attributes(Ipopt.Optimizer, "max_iter" => max_iter))
+if solver == "Hiop"
+  opfmodel = Model(optimizer_with_attributes(Hiop.Optimizer))
+else
+  opfmodel = Model(optimizer_with_attributes(Ipopt.Optimizer, "max_iter" => max_iter))
+end
 
 @variable(opfmodel, generators[i].Pmin <= Pg[i=1:ngen] <= generators[i].Pmax)
 @variable(opfmodel, generators[i].Qmin <= Qg[i=1:ngen] <= generators[i].Qmax)

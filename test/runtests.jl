@@ -37,3 +37,17 @@ end
   end
   @test objective_value(opfmodel) ≈ 5.2966862e+03
 end
+
+@testset "JuMP ACOPF with HiOp" begin
+  include("jumpmodel.jl")
+  case="data/case9"
+  max_iter=100
+  opfdata = acopf.opf_loaddata(case)
+  Pg0, Qg0, Vm0, Va0 = acopf.initialPt_IPOPT(opfdata)
+  opfmodel, Pg, Qg, Va, Vm = model(opfdata; solver="Hiop")
+  opfmodel,status = solve(opfmodel,opfdata)
+  if status==MOI.LOCALLY_SOLVED
+    outputAll(opfmodel,opfdata, Pg, Qg, Va, Vm)
+  end
+  @test objective_value(opfmodel) ≈ 5.2966862e+03
+end
