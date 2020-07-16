@@ -5,7 +5,6 @@ using Printf
 using DelimitedFiles
 using acopf
 
-export solve, model, initialPt_IPOPT, outputAll, computeAdmitances
 function solve(opfmodel)
   optimize!(opfmodel)
   status = termination_status(opfmodel)
@@ -17,7 +16,7 @@ end
 
 function model(opf_data; max_iter=100, solver="Ipopt")
   #shortcuts for compactness
-  Pg0,Qg0,Vm0,Va0 = initialPt_IPOPT(opf_data)
+  Pg0,Qg0,Vm0,Va0 = acopf.initialPt_IPOPT(opf_data)
   lines = opf_data.lines; buses = opf_data.buses; generators = opf_data.generators; baseMVA = opf_data.baseMVA
   busIdx = opf_data.BusIdx; FromLines = opf_data.FromLines; ToLines = opf_data.ToLines; BusGeners = opf_data.BusGenerators;
 

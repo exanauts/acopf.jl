@@ -6,6 +6,7 @@ using CuArrays, CUDAnative
 using ForwardDiff
 using TimerOutputs
 
+export solve, model, initialPt_IPOPT, outputAll, computeAdmitances
 export create_arrays, objective, constraints 
 export myseed!
 
