@@ -5,72 +5,33 @@ using Printf
 using DelimitedFiles
 using acopf
 
-struct SCOPFData
-  opfdata
-  lines_off::Array
-  #Float64::gener_ramp #generator ramp limit for contingency (percentage)
-end
-
 function solve(opfmodel)
-  # 
-  # Initial point - needed especially for pegase cases
-  #
-  # Pg0,Qg0,Vm0,Va0 = acopf.initialPt_IPOPT(scopf_data.opfdata)
-  # setvalue(getindex(opfmodel, :Pg), Pg0)  
-  # setvalue(getindex(opfmodel, :Qg), Qg0)
-  # extra_jump=getindex(opfmodel, :extra)
-  # Vm_jump=getindex(opfmodel, :Vm)
-  # Va_jump=getindex(opfmodel, :Va)
-
-  # setvalue(Vm_jump[:,0], Vm0)    
-  # setvalue(Va_jump[:,0], Va0)    
-  # setvalue(extra_jump[:,0], 0.025*Pg0)   
-  # ncont=length(scopf_data.lines_off); nbus=length(scopf_data.opfdata.buses)
-
-  # #println(opfmodel)
-
-  # for c in 1:ncont
-  #   opfm1=opf_loaddata(ARGS[1], scopf_data.lines_off[c])
-  #   Pg0,Qg0,Vm0,Va0 = acopf_initialPt_IPOPT(opfm1)
-  #   setvalue(extra_jump[:,c], 0.025*Pg0)   
-  #   setvalue(Vm_jump[:,c], Vm0)    
-  #   setvalue(Va_jump[:,c], Va0)    
-  # end
-
-
-  # status = solve(opfmodel)
-
   optimize!(opfmodel)
   status = termination_status(opfmodel)
   if status != MOI.LOCALLY_SOLVED
       println("Could not solve the model to optimality.")
   end
 
-
   return opfmodel, status
-  #scopf_outputAll(opfmodel, scopf_data)
 end
 
-function model(scopf_data; max_iter=100)
-  sd=scopf_data
-  Pg0,Qg0,Vm0,Va0 = acopf.initialPt_IPOPT(sd.opfdata)
-  lines = sd.opfdata.lines; buses = sd.opfdata.buses; generators = sd.opfdata.generators; baseMVA = sd.opfdata.baseMVA
-  busIdx = sd.opfdata.BusIdx; FromLines = sd.opfdata.FromLines; ToLines = sd.opfdata.ToLines; BusGeners = sd.opfdata.BusGenerators;
-  ncont=length(sd.lines_off); nbus=length(sd.opfdata.buses); ngen=length(sd.opfdata.generators)
+function model(opfdata; max_iter=100)
+  Pg0,Qg0,Vm0,Va0 = acopf.initialPt_IPOPT(opfdata)
+  lines = opfdata.lines; buses = opfdata.buses; generators = opfdata.generators; baseMVA = opfdata.baseMVA
+  busIdx = opfdata.BusIdx; FromLines = opfdata.FromLines; ToLines = opfdata.ToLines; BusGeners = opfdata.BusGenerators;
+  nbus=length(opfdata.buses); ngen=length(opfdata.generators)
 
-  generators=sd.opfdata.generators; buses=sd.opfdata.buses; baseMVA = sd.opfdata.baseMVA
+  generators=opfdata.generators; buses=opfdata.buses; baseMVA = opfdata.baseMVA
 
   opfmodel = Model(optimizer_with_attributes(Ipopt.Optimizer, "max_iter" => max_iter))
 
+  ncont = 3
   println("Considering ", ncont, " contingengies")
 
   @variable(opfmodel, generators[i].Pmin <= Pg[i=1:ngen] <= generators[i].Pmax, start = Pg0[i])
-  @variable(opfmodel, 0<=extra[i=1:ngen,0:ncont]<=0.00*generators[i].Pmax, start = 0.0)
+  @variable(opfmodel, 0<=extra[i=1:ngen,0:ncont]<=0.05*generators[i].Pmax, start = 0.025)
   @variable(opfmodel, generators[i].Qmin <= Qg[i=1:ngen] <= generators[i].Qmax, start = Qg0[i])
 
-  @NLobjective(opfmodel, Min, sum( generators[i].coeff[generators[i].n-2]*(baseMVA*(Pg[i]+extra[i,c]))^2 
-			             +generators[i].coeff[generators[i].n-1]*(baseMVA*(Pg[i]+extra[i,c]))
-				     +generators[i].coeff[generators[i].n  ] for i=1:ngen, c=0:ncont) / (1+ncont))
 
 
   @variable(opfmodel, buses[i].Vmin <= Vm[i=1:nbus, c=0:ncont] <= buses[i].Vmax, start = Vm0[i])
@@ -78,17 +39,27 @@ function model(scopf_data; max_iter=100)
   
   #fix the voltage angle at the reference bus
   for c in 0:ncont
-    set_lower_bound(Va[sd.opfdata.bus_ref,c], buses[sd.opfdata.bus_ref].Va)
-    set_upper_bound(Va[sd.opfdata.bus_ref,c], buses[sd.opfdata.bus_ref].Va)
+    set_lower_bound(Va[opfdata.bus_ref,c], buses[opfdata.bus_ref].Va)
+    set_upper_bound(Va[opfdata.bus_ref,c], buses[opfdata.bus_ref].Va)
   end
 
   @constraint(opfmodel, ex[i=1:ngen,co=0:ncont], generators[i].Pmin <= Pg[i] + extra[i,co] <= generators[i].Pmax)
+  @NLexpression(opfmodel, Pgc[g=1:ngen, co=0:ncont], Pg[g] + extra[g,co])
+  zeroexpr = @NLexpression(opfmodel, 0)
+  Pgc[1,1] = zeroexpr
+  Pgc[2,2] = zeroexpr
+  Pgc[3,3] = zeroexpr
+
+  @NLobjective(opfmodel, Min, sum( generators[i].coeff[generators[i].n-2]*(baseMVA*(Pgc[i,c]))^2 
+			             +generators[i].coeff[generators[i].n-1]*(baseMVA*(Pgc[i,c]))
+				     +generators[i].coeff[generators[i].n  ] for i=1:ngen, c=0:ncont) / (1+ncont))
+
   for co=0:ncont
     #branch admitances
     # if co==0
-      YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(sd.opfdata.lines, sd.opfdata.buses, sd.opfdata.baseMVA)
-      lines=sd.opfdata.lines
-      busIdx=sd.opfdata.BusIdx;FromLines=sd.opfdata.FromLines; ToLines=sd.opfdata.ToLines; BusGeners=sd.opfdata.BusGenerators
+      YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(opfdata.lines, opfdata.buses, opfdata.baseMVA)
+      lines=opfdata.lines
+      busIdx=opfdata.BusIdx;FromLines=opfdata.FromLines; ToLines=opfdata.ToLines; BusGeners=opfdata.BusGenerators
     # else
     #   opfm1=opf_loaddata(ARGS[1], sd.lines_off[co]) 
     #   YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(opfm1.lines, opfm1.buses, opfm1.baseMVA)
@@ -107,7 +78,7 @@ function model(scopf_data; max_iter=100)
               + YftI[l]*sin(Va[b,co]-Va[busIdx[lines[l].to],co]  )) for l in FromLines[b] )  
         + sum(  Vm[b,co]*Vm[busIdx[lines[l].from],co]*( YtfR[l]*cos(Va[b,co]-Va[busIdx[lines[l].from],co]) 
               + YtfI[l]*sin(Va[b,co]-Va[busIdx[lines[l].from],co])) for l in ToLines[b]   ) 
-        -(sum(baseMVA*(Pg[g]+extra[g,co]) for g in BusGeners[b]) - buses[b].Pd) / baseMVA      # Sbus part
+        -(sum(baseMVA*Pgc[g,co] for g in BusGeners[b]) - buses[b].Pd) / baseMVA      # Sbus part
         ==0)
 
       #imaginary part
@@ -285,7 +256,7 @@ end
 
 function main()
   if length(ARGS) < 1
-    println("Usage: julia scopf_main.jl case_name lines_indexes")
+    println("Usage: julia scopf.jl case_name")
     println("Cases are in 'data' directory: case9 case30 case57 case118 case300 case1354pegase case2383wp case2736sp case2737sop case2746wop case2869pegase case3012wp  case3120sp case3375wp case9241pegase")
     return
   end
@@ -293,17 +264,11 @@ function main()
   max_iter = 100
   opfdata = acopf.opf_loaddata(ARGS[1])
 
-  lines_off=Array{acopf.Line}(undef, length(ARGS)-1)
-  for l in 1:length(lines_off)
-    lines_off[l] = opfdata.lines[parse(Int,ARGS[l+1])]
-  end
-  scopfdata = SCOPFData(opfdata, lines_off)
-  @assert length(lines_off) == length(ARGS)-1
-  scopfmodel = model(scopfdata)
+  scopfmodel = model(opfdata)
   opfmodel, status = solve(scopfmodel)
-  if status == MOI.LOCALLY_SOLVED
-    scopf_outputAll(opfmodel,scopfdata)
-  end
+  # if status == MOI.LOCALLY_SOLVED
+  #   scopf_outputAll(opfmodel,scopfdata)
+  # end
 end
 
 main()
