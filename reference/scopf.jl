@@ -65,7 +65,7 @@ function model(scopf_data; max_iter=100)
   println("Considering ", ncont, " contingengies")
 
   @variable(opfmodel, generators[i].Pmin <= Pg[i=1:ngen] <= generators[i].Pmax, start = Pg0[i])
-  @variable(opfmodel, 0<=extra[i=1:ngen,0:ncont]<=0.05*generators[i].Pmax, start = 0.025*Pg0[i])
+  @variable(opfmodel, 0<=extra[i=1:ngen,0:ncont]<=0.00*generators[i].Pmax, start = 0.0)
   @variable(opfmodel, generators[i].Qmin <= Qg[i=1:ngen] <= generators[i].Qmax, start = Qg0[i])
 
   @NLobjective(opfmodel, Min, sum( generators[i].coeff[generators[i].n-2]*(baseMVA*(Pg[i]+extra[i,c]))^2 
