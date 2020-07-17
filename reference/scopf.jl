@@ -26,10 +26,9 @@ function model(opfdata; max_iter=100)
   opfmodel = Model(optimizer_with_attributes(Ipopt.Optimizer, "max_iter" => max_iter))
 
   ncont = 1
-  println("Considering ", ncont, " contingengies")
 
   @variable(opfmodel, generators[i].Pmin <= Pg[i=1:ngen] <= generators[i].Pmax, start = Pg0[i])
-  @variable(opfmodel, 0<=extra[i=1:ngen,0:ncont]<=0.05*generators[i].Pmax, start = 0.025)
+  @variable(opfmodel, 0<=extra[i=1:ngen,0:ncont]<=0.05*generators[i].Pmax, start = 0.025*generators[i].Pmax)
   @variable(opfmodel, generators[i].Qmin <= Qg[i=1:ngen] <= generators[i].Qmax, start = Qg0[i])
 
 
@@ -45,8 +44,15 @@ function model(opfdata; max_iter=100)
 
   @constraint(opfmodel, ex[i=1:ngen,co=0:ncont], generators[i].Pmin <= Pg[i] + extra[i,co] <= generators[i].Pmax)
   @NLexpression(opfmodel, Pgc[g=1:ngen, co=0:ncont], Pg[g] + extra[g,co])
+  @NLexpression(opfmodel, Qgc[g=1:ngen, co=0:ncont], Qg[g])
   zeroexpr = @NLexpression(opfmodel, 0)
   Pgc[1,1] = zeroexpr
+  # Pgc[2,2] = zeroexpr
+  # Pgc[3,3] = zeroexpr
+  Qgc[1,1] = zeroexpr
+  # Qgc[2,2] = zeroexpr
+  # Qgc[3,3] = zeroexpr
+  # @show Pgc
 
   @NLobjective(opfmodel, Min, sum( generators[i].coeff[generators[i].n-2]*(baseMVA*(Pgc[i,c]))^2 
 			             +generators[i].coeff[generators[i].n-1]*(baseMVA*(Pgc[i,c]))
@@ -86,7 +92,7 @@ function model(opfdata; max_iter=100)
               + YftR[l]*sin(Va[b,co]-Va[busIdx[lines[l].to],co]  )) for l in FromLines[b] )
         + sum( Vm[b,co]*Vm[busIdx[lines[l].from],co] *(-YtfI[l]*cos(Va[b,co]-Va[busIdx[lines[l].from],co]) 
               + YtfR[l]*sin(Va[b,co]-Va[busIdx[lines[l].from],co])) for l in ToLines[b]   )
-        -(sum(baseMVA*Qg[g] for g in BusGeners[b]) - buses[b].Qd) / baseMVA      #Sbus part
+        -(sum(baseMVA*Qgc[g] for g in BusGeners[b]) - buses[b].Qd) / baseMVA      #Sbus part
         ==0)
     end # of for: power flow balance loop
 
