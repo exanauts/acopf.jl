@@ -15,30 +15,30 @@ function solve(opfmodel)
   # 
   # Initial point - needed especially for pegase cases
   #
-  Pg0,Qg0,Vm0,Va0 = acopf.initialPt_IPOPT(scopf_data.opfdata)
-  setvalue(getindex(opfmodel, :Pg), Pg0)  
-  setvalue(getindex(opfmodel, :Qg), Qg0)
-  extra_jump=getindex(opfmodel, :extra)
-  Vm_jump=getindex(opfmodel, :Vm)
-  Va_jump=getindex(opfmodel, :Va)
+  # Pg0,Qg0,Vm0,Va0 = acopf.initialPt_IPOPT(scopf_data.opfdata)
+  # setvalue(getindex(opfmodel, :Pg), Pg0)  
+  # setvalue(getindex(opfmodel, :Qg), Qg0)
+  # extra_jump=getindex(opfmodel, :extra)
+  # Vm_jump=getindex(opfmodel, :Vm)
+  # Va_jump=getindex(opfmodel, :Va)
 
-  setvalue(Vm_jump[:,0], Vm0)    
-  setvalue(Va_jump[:,0], Va0)    
-  setvalue(extra_jump[:,0], 0.025*Pg0)   
-  ncont=length(scopf_data.lines_off); nbus=length(scopf_data.opfdata.buses)
+  # setvalue(Vm_jump[:,0], Vm0)    
+  # setvalue(Va_jump[:,0], Va0)    
+  # setvalue(extra_jump[:,0], 0.025*Pg0)   
+  # ncont=length(scopf_data.lines_off); nbus=length(scopf_data.opfdata.buses)
 
-  #println(opfmodel)
+  # #println(opfmodel)
 
-  for c in 1:ncont
-    opfm1=opf_loaddata(ARGS[1], scopf_data.lines_off[c])
-    Pg0,Qg0,Vm0,Va0 = acopf_initialPt_IPOPT(opfm1)
-    setvalue(extra_jump[:,c], 0.025*Pg0)   
-    setvalue(Vm_jump[:,c], Vm0)    
-    setvalue(Va_jump[:,c], Va0)    
-  end
+  # for c in 1:ncont
+  #   opfm1=opf_loaddata(ARGS[1], scopf_data.lines_off[c])
+  #   Pg0,Qg0,Vm0,Va0 = acopf_initialPt_IPOPT(opfm1)
+  #   setvalue(extra_jump[:,c], 0.025*Pg0)   
+  #   setvalue(Vm_jump[:,c], Vm0)    
+  #   setvalue(Va_jump[:,c], Va0)    
+  # end
 
 
-  status = solve(opfmodel)
+  # status = solve(opfmodel)
 
   optimize!(opfmodel)
   status = termination_status(opfmodel)
@@ -78,23 +78,23 @@ function model(scopf_data; max_iter=100)
   
   #fix the voltage angle at the reference bus
   for c in 0:ncont
-    setlowerbound(Va[sd.opfdata.bus_ref,c], buses[sd.opfdata.bus_ref].Va)
-    setupperbound(Va[sd.opfdata.bus_ref,c], buses[sd.opfdata.bus_ref].Va)
+    set_lower_bound(Va[sd.opfdata.bus_ref,c], buses[sd.opfdata.bus_ref].Va)
+    set_upper_bound(Va[sd.opfdata.bus_ref,c], buses[sd.opfdata.bus_ref].Va)
   end
 
   @constraint(opfmodel, ex[i=1:ngen,co=0:ncont], generators[i].Pmin <= Pg[i] + extra[i,co] <= generators[i].Pmax)
   for co=0:ncont
     #branch admitances
-    if co==0
+    # if co==0
       YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(sd.opfdata.lines, sd.opfdata.buses, sd.opfdata.baseMVA)
       lines=sd.opfdata.lines
       busIdx=sd.opfdata.BusIdx;FromLines=sd.opfdata.FromLines; ToLines=sd.opfdata.ToLines; BusGeners=sd.opfdata.BusGenerators
-    else
-      opfm1=opf_loaddata(ARGS[1], sd.lines_off[co]) 
-      YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(opfm1.lines, opfm1.buses, opfm1.baseMVA)
-      lines=opfm1.lines
-      busIdx = opfm1.BusIdx; FromLines = opfm1.FromLines; ToLines = opfm1.ToLines; BusGeners = opfm1.BusGenerators
-    end
+    # else
+    #   opfm1=opf_loaddata(ARGS[1], sd.lines_off[co]) 
+    #   YffR,YffI,YttR,YttI,YftR,YftI,YtfR,YtfI,YshR,YshI = computeAdmitances(opfm1.lines, opfm1.buses, opfm1.baseMVA)
+    #   lines=opfm1.lines
+    #   busIdx = opfm1.BusIdx; FromLines = opfm1.FromLines; ToLines = opfm1.ToLines; BusGeners = opfm1.BusGenerators
+    # end
     nline=length(lines)
 
 
@@ -203,13 +203,13 @@ function scopf_outputAll(opfmodel, scopf_data)
   nbus  = length(buses); nline = length(lines); ngen  = length(generators)
 
   # OUTPUTING
-  println("Objective value: ", getobjectivevalue(opfmodel), "USD/hr")
-  VM=getvalue(getindex(opfmodel,:Vm)); VA=getvalue(getindex(opfmodel,:Va));
-  PG=getvalue(getindex(opfmodel,:Pg)); QG=getvalue(getindex(opfmodel,:Qg));
+  println("Objective value: ", objective_value(opfmodel), "USD/hr")
+  VM=value.(getindex(opfmodel,:Vm)); VA=value.(getindex(opfmodel,:Va));
+  PG=value.(getindex(opfmodel,:Pg)); QG=value.(getindex(opfmodel,:Qg));
 
   VM=VM[:,0]; VA=VA[:,0]; #base case
 
-  EX=getvalue(getindex(opfmodel,:extra));
+  EX=value.(getindex(opfmodel,:extra));
   EX=EX[:,0];
 
   # printing the first stage variables
