@@ -1,6 +1,6 @@
 using JuMP
 using Ipopt
-using Hiop
+#using Hiop
 using Printf
 using DelimitedFiles
 using acopf
@@ -25,7 +25,7 @@ function model(opfdata; max_iter=100)
 
   opfmodel = Model(optimizer_with_attributes(Ipopt.Optimizer, "max_iter" => max_iter))
 
-  ncont = 3
+  ncont = 1
   println("Considering ", ncont, " contingengies")
 
   @variable(opfmodel, generators[i].Pmin <= Pg[i=1:ngen] <= generators[i].Pmax, start = Pg0[i])
@@ -47,8 +47,6 @@ function model(opfdata; max_iter=100)
   @NLexpression(opfmodel, Pgc[g=1:ngen, co=0:ncont], Pg[g] + extra[g,co])
   zeroexpr = @NLexpression(opfmodel, 0)
   Pgc[1,1] = zeroexpr
-  Pgc[2,2] = zeroexpr
-  Pgc[3,3] = zeroexpr
 
   @NLobjective(opfmodel, Min, sum( generators[i].coeff[generators[i].n-2]*(baseMVA*(Pgc[i,c]))^2 
 			             +generators[i].coeff[generators[i].n-1]*(baseMVA*(Pgc[i,c]))
